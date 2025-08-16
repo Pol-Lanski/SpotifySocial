@@ -641,7 +641,8 @@ class SpotifyCommentsExtension {
   }
 
   getApiUrl() {
-    return 'http://localhost:5000'; // Backend server URL
+    // Chrome extensions can access localhost with proper permissions
+    return 'http://localhost:5000';
   }
 
   escapeHtml(text) {

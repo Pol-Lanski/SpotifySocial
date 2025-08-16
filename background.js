@@ -56,7 +56,8 @@ class SpotifyCommentsBackground {
 
   async fetchComments({ playlistId, trackUri }) {
     try {
-      let url = `http://localhost:5000/comments?playlist_id=${playlistId}`;
+      const baseUrl = this.getApiUrl();
+      let url = `${baseUrl}/comments?playlist_id=${playlistId}`;
       if (trackUri) {
         url += `&track_uri=${encodeURIComponent(trackUri)}`;
       }
@@ -84,7 +85,8 @@ class SpotifyCommentsBackground {
         payload.track_uri = trackUri;
       }
 
-      const response = await fetch('http://localhost:5000/comments', {
+      const baseUrl = this.getApiUrl();
+      const response = await fetch(`${baseUrl}/comments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -105,7 +107,8 @@ class SpotifyCommentsBackground {
 
   async checkBackendStatus() {
     try {
-      const response = await fetch('http://localhost:5000/health');
+      const baseUrl = this.getApiUrl();
+      const response = await fetch(`${baseUrl}/health`);
       return { online: response.ok };
     } catch (error) {
       return { online: false };
@@ -143,6 +146,11 @@ class SpotifyCommentsBackground {
     });
   }
 
+  getApiUrl() {
+    // Chrome extensions can access localhost with proper permissions
+    return 'http://localhost:5000';
+  }
+
   // Store and retrieve extension settings
   async getSettings() {
     try {
@@ -150,7 +158,7 @@ class SpotifyCommentsBackground {
       return result.settings || {
         polling_interval: 5000,
         show_track_bubbles: true,
-        backend_url: 'http://localhost:5000'
+        backend_url: this.getApiUrl()
       };
     } catch (error) {
       console.error('Error getting settings:', error);

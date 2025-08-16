@@ -6,13 +6,16 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = 5000; // Fixed port for Replit
 
 // Database connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/spotify_comments',
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
+
+// Trust proxy for rate limiting in hosted environments
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(helmet({
@@ -21,9 +24,15 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: ['https://open.spotify.com', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: [
+    'https://open.spotify.com', 
+    'http://localhost:3000', 
+    'chrome-extension://*',
+    'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-00-ucp3v8whtp7c.riker.replit.dev'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
 }));
 
 app.use(express.json({ limit: '1mb' }));
@@ -31,18 +40,20 @@ app.use(express.json({ limit: '1mb' }));
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
+  max: 500, // Increased limit for development
+  message: { error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  trustProxy: true
 });
 
 const postLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 10, // Limit each IP to 10 POST requests per minute
-  message: 'Too many comments posted, please slow down.',
+  max: 50, // Increased limit for development
+  message: { error: 'Too many comments posted, please slow down.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  trustProxy: true
 });
 
 app.use(limiter);

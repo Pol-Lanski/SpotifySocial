@@ -5,10 +5,13 @@
   "description": "Add comments to Spotify playlists and tracks",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
-    "https://open.spotify.com/*"
+    "https://open.spotify.com/*",
+    "http://localhost:5000/*",
+    "https://*.replit.dev/*"
   ],
   "content_scripts": [
     {
