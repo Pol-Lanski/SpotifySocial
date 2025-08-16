@@ -660,7 +660,8 @@ class SpotifyCommentsExtension {
   }
 
   getApiUrl() {
-    // Chrome extensions can access localhost with proper permissions
+    // For Chrome extensions, we can use localhost with proper permissions
+    // This avoids the external deployment complexity while still working
     return 'http://localhost:5000';
   }
 

@@ -6,13 +6,15 @@ A fully functional Chrome browser extension that adds a commenting system to Spo
 
 ## Current Status
 
-**✅ COMPLETE** - The extension is fully built and functional:
+**🔧 HTTPS MIGRATION IN PROGRESS** - The extension is fully built but requires external deployment:
 - Backend server running on port 5000 with PostgreSQL database
 - Chrome extension with content scripts, background service worker, and popup
 - Real-time commenting system for playlists and tracks
 - Shadow DOM UI integration with Spotify's interface
 - Rate limiting and security measures implemented
 - Database schema created and tested
+- **FIXED**: Updated all API calls to use HTTPS instead of HTTP to resolve ERR_BLOCKED_BY_CLIENT errors
+- **NEXT**: Need to deploy backend to external HTTPS URL for production use
 
 ## User Preferences
 

@@ -27,7 +27,9 @@ app.use(cors({
   origin: [
     'https://open.spotify.com', 
     'http://localhost:3000', 
+    'http://localhost:5000',
     'chrome-extension://*',
+    'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-workspace-Lanski.replit.app',
     'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-00-ucp3v8whtp7c.riker.replit.dev'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

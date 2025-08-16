@@ -1,6 +1,8 @@
 // API utility functions for backend communication
 class ApiUtils {
   constructor() {
+    // For Chrome extensions, we can use localhost with proper permissions
+    // Chrome extensions bypass mixed content restrictions
     this.baseUrl = 'http://localhost:5000';
     this.timeout = 10000; // 10 seconds
     this.retryAttempts = 3;

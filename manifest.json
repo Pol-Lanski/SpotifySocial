@@ -11,7 +11,8 @@
   "host_permissions": [
     "https://open.spotify.com/*",
     "http://localhost:5000/*",
-    "https://*.replit.dev/*"
+    "https://*.replit.dev/*",
+    "https://*.replit.app/*"
   ],
   "content_scripts": [
     {
