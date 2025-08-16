@@ -37,6 +37,9 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb' }));
 
+// Serve static files for testing
+app.use(express.static('.'));
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -64,6 +67,17 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     version: '1.0.0'
+  });
+});
+
+// Debug endpoint for extension testing
+app.get('/debug', (req, res) => {
+  res.json({
+    message: 'Extension API is working!',
+    timestamp: new Date().toISOString(),
+    headers: req.headers,
+    method: req.method,
+    url: req.url
   });
 });
 

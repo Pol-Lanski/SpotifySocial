@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Extension API Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #121212; color: white; }
+        button { padding: 10px 20px; margin: 5px; background: #1db954; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #1ed760; }
+        .result { margin: 10px 0; padding: 10px; background: #333; border-radius: 4px; }
+        .error { background: #d32f2f; }
+        .success { background: #388e3c; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Extension API Test</h1>
+    <p>Test the extension API connection step by step:</p>
+    
+    <button onclick="testHealth()">1. Test Health Endpoint</button>
+    <button onclick="testDebug()">2. Test Debug Endpoint</button>
+    <button onclick="testComments()">3. Test Get Comments</button>
+    <button onclick="testPostComment()">4. Test Post Comment</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:5000';
+
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`;
+            results.appendChild(div);
+            console.log(message);
+        }
+
+        async function testHealth() {
+            try {
+                log('🔍 Testing health endpoint...');
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                log(`✅ Health check successful: ${JSON.stringify(data)}`, 'success');
+            } catch (error) {
+                log(`❌ Health check failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testDebug() {
+            try {
+                log('🔍 Testing debug endpoint...');
+                const response = await fetch(`${API_BASE}/debug`);
+                const data = await response.json();
+                log(`✅ Debug test successful: ${data.message}`, 'success');
+            } catch (error) {
+                log(`❌ Debug test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testComments() {
+            try {
+                log('🔍 Testing get comments...');
+                const response = await fetch(`${API_BASE}/comments?playlist_id=test_playlist_123`);
+                const data = await response.json();
+                log(`✅ Get comments successful: Found ${data.length} comments`, 'success');
+            } catch (error) {
+                log(`❌ Get comments failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testPostComment() {
+            try {
+                log('🔍 Testing post comment...');
+                const response = await fetch(`${API_BASE}/comments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        playlist_id: 'test_playlist_123',
+                        text: 'Test comment from browser'
+                    })
+                });
+                const data = await response.json();
+                log(`✅ Post comment successful: ${data.id}`, 'success');
+            } catch (error) {
+                log(`❌ Post comment failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-run all tests
+        document.addEventListener('DOMContentLoaded', () => {
+            log('🚀 Starting API tests...');
+        });
+    </script>
+</body>
+</html>

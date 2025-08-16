@@ -363,9 +363,11 @@ class SpotifyCommentsExtension {
     
     if (playlistMatch) {
       this.currentPlaylistId = playlistMatch[1];
-      console.log('Detected playlist:', this.currentPlaylistId);
+      console.log('🎵 Detected playlist:', this.currentPlaylistId);
+      console.log('🔗 Full URL:', url);
     } else {
       this.currentPlaylistId = null;
+      console.log('❌ No playlist detected in URL:', url);
     }
   }
 
@@ -547,12 +549,20 @@ class SpotifyCommentsExtension {
         url += `&track_uri=${encodeURIComponent(this.currentTrackUri)}`;
       }
       
+      console.log('🔍 Loading comments from:', url);
       const response = await fetch(url);
+      console.log('📡 Response status:', response.status, response.statusText);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const comments = await response.json();
+      console.log('💬 Loaded comments:', comments);
       
       this.renderComments(comments);
     } catch (error) {
-      console.error('Error loading comments:', error);
+      console.error('❌ Error loading comments:', error);
       commentList.innerHTML = '<div class="error-state">Failed to load comments. Please try again.</div>';
     }
   }
@@ -597,6 +607,9 @@ class SpotifyCommentsExtension {
         payload.track_uri = this.currentTrackUri;
       }
       
+      console.log('📝 Sending comment:', payload);
+      console.log('🎯 API URL:', this.getApiUrl());
+      
       const response = await fetch(`${this.getApiUrl()}/comments`, {
         method: 'POST',
         headers: {
@@ -605,14 +618,20 @@ class SpotifyCommentsExtension {
         body: JSON.stringify(payload)
       });
       
+      console.log('📡 Send response status:', response.status, response.statusText);
+      
       if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Comment sent successfully:', result);
         textArea.value = '';
         this.loadComments(); // Refresh comments
       } else {
-        throw new Error('Failed to send comment');
+        const errorText = await response.text();
+        console.error('❌ Server error response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
     } catch (error) {
-      console.error('Error sending comment:', error);
+      console.error('❌ Error sending comment:', error);
       alert('Failed to send comment. Please try again.');
     } finally {
       sendButton.disabled = false;
