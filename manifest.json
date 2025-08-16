@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Spotify Playlist Comments",
+  "version": "1.0.0",
+  "description": "Add comments to Spotify playlists and tracks",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://open.spotify.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://open.spotify.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Spotify Comments"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["components/*", "utils/*"],
+      "matches": ["https://open.spotify.com/*"]
+    }
+  ]
+}

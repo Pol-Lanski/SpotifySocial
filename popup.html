@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 300px;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #121212;
+            color: #ffffff;
+            margin: 0;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        .title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1db954;
+        }
+        .subtitle {
+            font-size: 12px;
+            color: #b3b3b3;
+            margin-top: 4px;
+        }
+        .content {
+            text-align: center;
+        }
+        .instruction {
+            font-size: 14px;
+            line-height: 1.4;
+            color: #ffffff;
+            margin-bottom: 16px;
+        }
+        .highlight {
+            color: #1db954;
+            font-weight: 600;
+        }
+        .status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 16px;
+        }
+        .status.active {
+            background: #1db954;
+            color: white;
+        }
+        .status.inactive {
+            background: #535353;
+            color: #b3b3b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">💬</div>
+        <div class="title">Spotify Comments</div>
+        <div class="subtitle">Add comments to playlists & tracks</div>
+    </div>
+    
+    <div class="content">
+        <div class="instruction">
+            Navigate to a <span class="highlight">Spotify playlist</span> and click the comments button to start sharing your thoughts!
+        </div>
+        
+        <div class="status active" id="status">
+            ✓ Extension Active
+        </div>
+    </div>
+
+    <script>
+        // Simple status check
+        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+            const currentTab = tabs[0];
+            const statusEl = document.getElementById('status');
+            
+            if (currentTab.url && currentTab.url.includes('open.spotify.com')) {
+                statusEl.textContent = '✓ Ready on Spotify';
+                statusEl.className = 'status active';
+            } else {
+                statusEl.textContent = '→ Go to Spotify';
+                statusEl.className = 'status inactive';
+            }
+        });
+    </script>
+</body>
+</html>
