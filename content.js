@@ -660,9 +660,8 @@ class SpotifyCommentsExtension {
   }
 
   getApiUrl() {
-    // For Chrome extensions, we can use localhost with proper permissions
-    // This avoids the external deployment complexity while still working
-    return 'http://localhost:5000';
+    // Use the external Replit URL since the server runs in Replit cloud, not user's localhost
+    return 'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-workspace-lanski.replit.app';
   }
 
   escapeHtml(text) {

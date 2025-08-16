@@ -1,9 +1,8 @@
 // API utility functions for backend communication
 class ApiUtils {
   constructor() {
-    // For Chrome extensions, we can use localhost with proper permissions
-    // Chrome extensions bypass mixed content restrictions
-    this.baseUrl = 'http://localhost:5000';
+    // Use the external Replit URL since the server runs in Replit cloud, not user's localhost
+    this.baseUrl = 'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-workspace-lanski.replit.app';
     this.timeout = 10000; // 10 seconds
     this.retryAttempts = 3;
     this.retryDelay = 1000; // 1 second
