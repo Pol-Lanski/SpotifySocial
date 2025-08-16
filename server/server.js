@@ -1,4 +1,4 @@
-// Express server for the Spotify Comments Extension backend
+// Express server for the Spotify Comments Extension backend (separated)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -27,12 +27,8 @@ app.use(helmet({
 // CORS configuration with optional override via CORS_ORIGINS env (comma-separated)
 const defaultCorsOrigins = [
   'https://open.spotify.com',
-  'http://localhost:3000',
-  'http://localhost:5000',
-  'chrome-extension://*',
-  'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-workspace-lanski.replit.app',
-  'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-workspace-Lanski.replit.app',
-  'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-00-ucp3v8whtp7c.riker.replit.dev'
+  'https://localhost:8443',
+  'http://localhost:5000'
 ];
 
 const envCorsOrigins = (process.env.CORS_ORIGINS || '')
@@ -57,30 +53,6 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '1mb' }));
-
-// Serve static files for testing
-app.use(express.static('.'));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // Increased limit for development
-  message: { error: 'Too many requests from this IP, please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  trustProxy: true
-});
-
-const postLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 50, // Increased limit for development
-  message: { error: 'Too many comments posted, please slow down.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  trustProxy: true
-});
-
-app.use(limiter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -151,7 +123,7 @@ app.get('/comments', async (req, res) => {
 });
 
 // Post a new comment
-app.post('/comments', postLimiter, async (req, res) => {
+app.post('/comments', rateLimit({ windowMs: 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false, trustProxy: true }), async (req, res) => {
   try {
     const { playlist_id, track_uri, text } = req.body;
     
@@ -396,3 +368,5 @@ startServer().catch(error => {
   console.error('Failed to start server:', error);
   process.exit(1);
 });
+
+

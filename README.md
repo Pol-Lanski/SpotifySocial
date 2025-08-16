@@ -28,11 +28,43 @@ The extension uses Supabase for storing comments:
 1. Go to [Supabase dashboard](https://supabase.com/dashboard/projects)
 2. Create a new project (free tier available)
 3. Get your connection string from the project settings
-4. Add it to your Replit secrets as `DATABASE_URL`
+4. Put the connection string into a `.env` file at the project root as `DATABASE_URL`
 
-### 3. Start the Backend
+### 3. Configure Environment (.env)
 
-The backend server will start automatically when you run the project in Replit.
+Create a `.env` file in the project root:
+
+```
+DATABASE_URL=postgresql://USER:PASS@HOST:5432/DB_NAME
+NODE_ENV=production
+PORT=5000
+# Optional: override allowed CORS origins (comma-separated)
+# CORS_ORIGINS=https://open.spotify.com,https://api.your-domain.com
+```
+
+The server reads these values via `dotenv` on startup.
+
+### 4. Start the Backend (local HTTPS via Caddy)
+
+Install dependencies and run the server:
+
+```
+npm install
+npm start
+```
+
+Run Caddy to provide HTTPS on `https://localhost:8443` that proxies to the Node server on `http://127.0.0.1:5000`:
+
+```
+cd server
+caddy run --config Caddyfile
+```
+
+In the extension, the default API URL points to `https://localhost:8443`. You can override at runtime:
+
+```
+localStorage.setItem('spotifyCommentsApiUrl', 'https://your-api-domain')
+```
 
 ## Usage
 
@@ -50,7 +82,10 @@ The backend server will start automatically when you run the project in Replit.
 ├── background.js          # Service worker for extension
 ├── styles.css            # Extension styles
 ├── popup.html            # Extension popup interface
-├── server.js             # Express.js backend server
+├── server/               # Backend server (separated)
+│   ├── server.js         # Express.js backend server
+│   └── db/               # Database artifacts
+│       └── schema.sql    # Database schema
 ├── components/           # UI components
 │   ├── CommentPanel.js   # Main comment panel
 │   ├── CommentButton.js  # Floating comment button

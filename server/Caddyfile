@@ -1,0 +1,24 @@
+{
+  # Local certificates for localhost
+  # Run: caddy trust
+  auto_https disable_redirects
+}
+
+https://localhost:8443 {
+  tls internal
+  
+  @api path /health /comments* /debug
+  
+  reverse_proxy @api 127.0.0.1:5000 {
+    header_up X-Forwarded-Proto https
+  }
+
+  header {
+    # Allow content script origin
+    Access-Control-Allow-Origin "https://open.spotify.com"
+    Access-Control-Allow-Methods "GET, POST, OPTIONS, DELETE"
+    Access-Control-Allow-Headers "Content-Type, Authorization"
+  }
+}
+
+
