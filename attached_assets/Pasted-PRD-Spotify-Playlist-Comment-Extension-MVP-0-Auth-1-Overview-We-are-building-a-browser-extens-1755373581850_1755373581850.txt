@@ -1,0 +1,123 @@
+PRD: Spotify Playlist Comment Extension (MVP, 0 Auth)
+
+1. Overview
+
+We are building a browser extension that overlays a comment system on the Spotify Web Player (https://open.spotify.com/*).
+When a user views a playlist or track inside Spotify Web, they can open a side panel and see/post comments. All users with the extension share the same comment thread (no authentication in MVP).
+
+Goal for hackathon MVP:
+	•	Show a working extension that overlays UI on Spotify Web.
+	•	Allow posting and reading comments tied to a playlist (and optionally to individual tracks).
+	•	Store comments in a simple shared backend (Supabase/Firebase, or even a JSON API).
+
+⸻
+
+2. User Stories
+
+Core
+	•	As a user on a playlist page, I can open a comments panel and see all comments left for this playlist by other extension users.
+	•	As a user, I can post a comment into this playlist’s thread. My comment appears immediately in the panel (optimistic UI).
+	•	As a user on a track row, I see a comment bubble icon if there are comments for this track. Clicking it opens the comments panel filtered to that track.
+	•	As a user, I don’t need an account. Everyone sees the same data (playlist-level or track-level).
+
+Nice-to-have (time permitting)
+	•	Reactions (👍😂🔥).
+	•	Delete (soft delete, only by whoever posted).
+	•	Invite code for private threads.
+
+⸻
+
+3. Technical Architecture
+
+Extension
+	•	Manifest V3 extension.
+	•	Content script injected into https://open.spotify.com/*.
+	•	MutationObserver + history.pushState listener to detect Spotify route changes (playlist → track → home).
+	•	Inject a Shadow DOM container into the page for our UI, preventing CSS conflicts.
+	•	UI framework: Preact/React in content script.
+	•	Styling: TailwindCSS compiled at build time into content script bundle.
+
+Backend
+	•	Supabase (preferred) or Firebase.
+	•	DB schema:
+
+comments (
+  id UUID PRIMARY KEY,
+  playlist_id TEXT NOT NULL,
+  track_uri TEXT NULL,
+  text TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT now()
+)
+
+
+	•	API:
+	•	GET /comments?playlist_id=<id>[&track_uri=<uri>]
+	•	POST /comments { playlist_id, track_uri?, text }
+
+No authentication: open endpoints for MVP (security by obscurity, can lock down later).
+
+⸻
+
+4. UI/UX
+
+Placement
+	•	Playlist Page:
+	•	A floating button (“💬 Comments”) anchored bottom-right.
+	•	Clicking opens a right-side drawer (~400px wide).
+	•	Drawer Layout:
+	•	Header: “Comments for [Playlist Name]”
+	•	Tabs: Playlist | This Track
+	•	Comment list (scrollable, newest last).
+	•	Composer input box at bottom: [Text field + “Send” button].
+	•	Track Rows:
+	•	Each row shows a tiny bubble icon if comments exist for that track.
+	•	Clicking bubble → opens drawer focused on “This Track.”
+
+Style
+	•	Match Spotify’s dark theme (black/gray background, white text).
+	•	Comments styled like chat bubbles.
+	•	Use minimal visual footprint (avoid breaking Spotify layout).
+
+⸻
+
+5. Functional Requirements
+	1.	Detect Playlist Context
+	•	Parse playlist ID from URL (/playlist/<playlist_id>).
+	•	Pass playlist_id to backend for fetching comments.
+	2.	Detect Track Context
+	•	Track rows contain a data-testid or aria-label.
+	•	Extract track URI.
+	•	Bubble icons dynamically attached only to visible rows (virtualized list → use IntersectionObserver).
+	3.	Comment Lifecycle
+	•	On load, fetch comments for playlist (and track if selected).
+	•	Display existing comments.
+	•	On submit:
+	•	POST to backend.
+	•	Optimistically render comment.
+	•	Refresh thread via subscription (Supabase Realtime) or polling (fallback).
+
+⸻
+
+6. Non-Functional Requirements
+	•	Performance: UI must not slow down Spotify scroll.
+	•	Resilience: If backend is offline, show “Comments unavailable” state.
+	•	Privacy: No auth, no user IDs. Only text, playlist_id, and track_uri stored.
+	•	Portability: Should work on Chrome/Brave/Edge. Firefox support optional.
+
+⸻
+
+7. Stretch Goals
+	•	User-set nicknames stored in local extension storage.
+	•	Emoji reactions.
+	•	Private playlist comments (invite code).
+	•	Identity layer (Spotify OAuth or Sign-in With Ethereum).
+
+⸻
+
+8. Risks / Pitfalls
+	•	Spotify DOM may change; selectors must be resilient.
+	•	SPA navigation requires reliable re-mounting.
+	•	Open backend → vulnerable to spam (acceptable for hackathon).
+	•	Moderation not implemented in MVP.
+
+⸻
