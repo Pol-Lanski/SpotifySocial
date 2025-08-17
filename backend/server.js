@@ -85,6 +85,20 @@ function issueAppToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
+// Helper: mask an email address like: a***@gmail.com
+function maskEmail(email) {
+  try {
+    if (!email || typeof email !== 'string' || !email.includes('@')) return null;
+    const [local, domain] = email.split('@');
+    if (!local) return null;
+    if (local.length === 1) return `${local[0]}***@${domain}`;
+    if (local.length === 2) return `${local[0]}***@${domain}`;
+    return `${local[0]}${'*'.repeat(Math.max(3, local.length - 2))}${local[local.length - 1]}@${domain}`;
+  } catch (_) {
+    return null;
+  }
+}
+
 // Middleware: authenticate app JWT
 function authenticate(req, res, next) {
   try {
@@ -203,24 +217,48 @@ app.get('/comments', async (req, res) => {
     }
     
     let query = `
-      SELECT id, playlist_id, track_uri, text, created_at, user_id
-      FROM comments 
-      WHERE playlist_id = $1
+      SELECT c.id, c.playlist_id, c.track_uri, c.text, c.created_at, c.user_id, u.email, u.username
+      FROM comments c
+      LEFT JOIN users u ON u.id = c.user_id
+      WHERE c.playlist_id = $1
     `;
     
     const params = [playlist_id];
     
     if (track_uri) {
-      query += ' AND track_uri = $2';
+      query += ' AND c.track_uri = $2';
       params.push(track_uri);
     } else {
-      query += ' AND track_uri IS NULL';
+      query += ' AND c.track_uri IS NULL';
     }
     
-    query += ' ORDER BY created_at ASC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+    query += ' ORDER BY c.created_at ASC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
     params.push(parseInt(limit), parseInt(offset));
     
-    const result = await pool.query(query, params);
+    let result;
+    try {
+      result = await pool.query(query, params);
+    } catch (e) {
+      // Fallback for older DBs without users.username column
+      if (e && e.code === '42703') { // undefined_column
+        let fbQuery = `
+          SELECT c.id, c.playlist_id, c.track_uri, c.text, c.created_at, c.user_id, u.email
+          FROM comments c
+          LEFT JOIN users u ON u.id = c.user_id
+          WHERE c.playlist_id = $1
+        `;
+        if (track_uri) {
+          fbQuery += ' AND c.track_uri = $2';
+        } else {
+          fbQuery += ' AND c.track_uri IS NULL';
+        }
+        fbQuery += ' ORDER BY c.created_at ASC LIMIT $' + (params.length - 1) + ' OFFSET $' + (params.length);
+        // params already includes playlist_id, maybe track_uri, then limit, offset
+        result = await pool.query(fbQuery, params);
+      } else {
+        throw e;
+      }
+    }
     
     // Annotate ownership if caller is authenticated
     let callerUserId = null;
@@ -239,7 +277,8 @@ app.get('/comments', async (req, res) => {
       track_uri: r.track_uri,
       text: r.text,
       created_at: r.created_at,
-      is_owner: callerUserId ? r.user_id === callerUserId : false
+      is_owner: callerUserId ? r.user_id === callerUserId : false,
+      author: (r.username ? r.username : (r.email ? maskEmail(r.email) : null))
     }));
     
     res.json(rows);
@@ -297,8 +336,13 @@ app.post('/comments', authenticate, rateLimit({ windowMs: 60 * 1000, max: 50, st
     
     const params = [playlist_id, track_uri || null, text.trim(), req.user.uid];
     const result = await pool.query(query, params);
-    
-    res.status(201).json(result.rows[0]);
+    let author = null;
+    try {
+      const er = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.uid]);
+      author = er.rows[0]?.email ? maskEmail(er.rows[0].email) : null;
+    } catch (_) {}
+    const row = result.rows[0];
+    res.status(201).json({ ...row, author });
   } catch (error) {
     console.error('Error posting comment:', error);
     
@@ -504,9 +548,28 @@ app.post('/auth/dev-login', async (req, res) => {
 app.get('/auth/me', authenticate, async (req, res) => {
   try {
     const { uid, sub } = req.user;
-    const result = await pool.query('SELECT id, privy_user_id, email, created_at FROM users WHERE id = $1', [uid]);
+    const result = await pool.query('SELECT id, privy_user_id, email, username, created_at FROM users WHERE id = $1', [uid]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json({ id: result.rows[0].id, privy_user_id: sub, email: result.rows[0].email, created_at: result.rows[0].created_at });
+    res.json({ id: result.rows[0].id, privy_user_id: sub, email: result.rows[0].email, username: result.rows[0].username, created_at: result.rows[0].created_at });
+  } catch (e) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update display name (username)
+app.put('/auth/me/username', authenticate, async (req, res) => {
+  try {
+    const { username } = req.body || {};
+    if (typeof username !== 'string') return res.status(400).json({ error: 'username is required' });
+    const trimmed = username.trim();
+    if (trimmed.length < 2 || trimmed.length > 32) return res.status(400).json({ error: 'username must be 2-32 chars' });
+    // simple allowlist: letters, numbers, spaces, underscore, dash
+    if (!/^[-_ a-zA-Z0-9]+$/.test(trimmed)) return res.status(400).json({ error: 'username contains invalid characters' });
+    // enforce uniqueness (case-insensitive)
+    const conflict = await pool.query('SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) AND id <> $2', [trimmed, req.user.uid]);
+    if (conflict.rows.length > 0) return res.status(409).json({ error: 'username already taken' });
+    await pool.query('UPDATE users SET username = $1, updated_at = NOW() WHERE id = $2', [trimmed, req.user.uid]);
+    res.json({ ok: true, username: trimmed });
   } catch (e) {
     res.status(500).json({ error: 'Internal server error' });
   }

@@ -68,6 +68,24 @@ class SpotifyCommentsBackground {
           sendResponse({ success: true });
           break;
 
+        case 'GET_PROFILE':
+          try {
+            const prof = await this.getProfile();
+            sendResponse({ success: true, data: prof });
+          } catch (e) {
+            sendResponse({ success: false, error: e.message });
+          }
+          break;
+
+        case 'UPDATE_USERNAME':
+          try {
+            const updated = await this.updateUsername(message?.payload?.username);
+            sendResponse({ success: true, data: updated });
+          } catch (e) {
+            sendResponse({ success: false, error: e.message });
+          }
+          break;
+
         default:
           sendResponse({ success: false, error: 'Unknown message type' });
       }
@@ -236,6 +254,31 @@ class SpotifyCommentsBackground {
     } catch (error) {
       return { online: false };
     }
+  }
+
+  async getProfile() {
+    if (!this.session?.token) throw new Error('Not authenticated');
+    const baseUrl = this.getApiUrl();
+    const r = await fetch(`${baseUrl}/auth/me`, {
+      headers: { 'Authorization': `Bearer ${this.session.token}` }
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  }
+
+  async updateUsername(username) {
+    if (!this.session?.token) throw new Error('Not authenticated');
+    const baseUrl = this.getApiUrl();
+    const r = await fetch(`${baseUrl}/auth/me/username`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.session.token}`
+      },
+      body: JSON.stringify({ username })
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
   }
 
   async ensureContentScriptInjected(tabId) {

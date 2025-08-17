@@ -191,6 +191,28 @@ class SpotifyCommentsExtension {
         color: #1db954;
       }
 
+      .display-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .display-name label { color: #b3b3b3; font-size: 12px; }
+      .display-name .value { color: #ffffff; font-size: 12px; font-weight: 600; }
+      .display-name .edit-btn {
+        background: none; border: 1px solid #535353; color: #b3b3b3;
+        border-radius: 6px; padding: 4px 8px; cursor: pointer;
+      }
+      .display-name .edit-btn:hover { border-color: #1db954; color: #1db954; }
+      .display-name .edit-input {
+        background: #2a2a2a; color: #fff; border: 1px solid #535353; border-radius: 6px;
+        padding: 6px 8px; font-size: 12px; width: 180px;
+      }
+      .display-name .save-btn {
+        background: #1db954; color: #fff; border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer;
+      }
+      .display-name .save-btn:hover { background: #1ed760; }
+
       .drawer-tabs {
         display: flex;
         gap: 16px;
@@ -503,6 +525,11 @@ class SpotifyCommentsExtension {
             <button class="auth-button logout-button" style="display:none;">Log out</button>
           </div>
         </div>
+        <div class="display-name" style="display:none;">
+          <label>Name:</label>
+          <span class="value"></span>
+          <button class="edit-btn" title="Edit display name">✎</button>
+        </div>
       </div>
       <div class="comment-list" id="comment-list">
         <div class="loading">Loading comments...</div>
@@ -523,6 +550,9 @@ class SpotifyCommentsExtension {
     const textArea = this.drawer.querySelector('.composer-input');
     const loginButton = this.drawer.querySelector('.drawer-header .login-button');
     const logoutButton = this.drawer.querySelector('.drawer-header .logout-button');
+    const displayNameRow = this.drawer.querySelector('.drawer-header .display-name');
+    const displayNameValue = this.drawer.querySelector('.drawer-header .display-name .value');
+    const editBtn = this.drawer.querySelector('.drawer-header .display-name .edit-btn');
     
     sendButton.addEventListener('click', () => this.sendComment());
     textArea.addEventListener('keydown', (e) => {
@@ -551,6 +581,70 @@ class SpotifyCommentsExtension {
           this.loadComments();
         }
       } catch (_) {}
+    });
+
+    // Edit display name flow
+    if (editBtn) editBtn.addEventListener('click', () => {
+      if (!this.authenticated) return;
+      const wrapper = this.drawer.querySelector('.drawer-header .display-name');
+      const current = (displayNameValue && displayNameValue.textContent) ? displayNameValue.textContent : '';
+      wrapper.innerHTML = `
+        <label>Name:</label>
+        <input class="edit-input" type="text" maxlength="32" value="${this.escapeHtml(current)}" />
+        <button class="save-btn">Save</button>
+      `;
+      const input = wrapper.querySelector('.edit-input');
+      const save = wrapper.querySelector('.save-btn');
+      const finish = (name) => {
+        wrapper.innerHTML = `
+          <label>Name:</label>
+          <span class="value">${this.escapeHtml(name)}</span>
+          <button class="edit-btn" title="Edit display name">✎</button>
+        `;
+        const reb = wrapper.querySelector('.edit-btn');
+        if (reb) {
+          reb.addEventListener('click', () => {
+            // reopen edit
+            const valEl = wrapper.querySelector('.value');
+            const currentName = valEl ? valEl.textContent : '';
+            wrapper.innerHTML = `
+              <label>Name:</label>
+              <input class=\"edit-input\" type=\"text\" maxlength=\"32\" value=\"${this.escapeHtml(currentName)}\" />
+              <button class=\"save-btn\">Save</button>
+            `;
+            const in2 = wrapper.querySelector('.edit-input');
+            const sv2 = wrapper.querySelector('.save-btn');
+            const doSave2 = async () => {
+              const newName2 = in2.value.trim();
+              if (newName2.length < 2 || newName2.length > 32) { alert('Name must be 2 to 32 characters.'); return; }
+              try { const resp2 = await this.updateUsername(newName2); finish(resp2?.username || newName2); this.fetchAuthState(); } catch (_) { alert('Failed to update name.'); }
+            };
+            sv2.addEventListener('click', doSave2);
+            in2.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave2(); });
+            in2.focus();
+          });
+        }
+      };
+      const doSave = async () => {
+        const newName = input.value.trim();
+        if (newName.length < 2 || newName.length > 32) {
+          alert('Name must be 2 to 32 characters.');
+          return;
+        }
+        try {
+          const resp = await this.updateUsername(newName);
+          finish(resp?.username || newName);
+          // refresh comments to show new author for future posts
+          this.fetchAuthState();
+        } catch (e) {
+          alert('Failed to update name.');
+        }
+      };
+      save.addEventListener('click', doSave);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSave();
+      });
+      input.focus();
     });
     
     this.shadowRoot.appendChild(this.drawer);
@@ -680,7 +774,7 @@ class SpotifyCommentsExtension {
       <div class="comment-item" data-id="${comment.id}">
         <div class="comment-text">${this.escapeHtml(comment.text)}</div>
         <div class="comment-meta">
-          ${this.formatDate(comment.created_at)}
+          ${comment.author ? this.escapeHtml(comment.author) + ' · ' : ''}${this.formatDate(comment.created_at)}
           ${(this.authenticated && comment.is_owner) ? '<button class="delete-button" style="margin-left:8px; background:none; border:none; color:#e22134; cursor:pointer;">Delete</button>' : ''}
         </div>
       </div>
@@ -799,13 +893,48 @@ class SpotifyCommentsExtension {
       const loginBtn = this.drawer?.querySelector('.drawer-header .login-button');
       const logoutBtn = this.drawer?.querySelector('.drawer-header .logout-button');
       const statusEl = this.drawer?.querySelector('.drawer-header .auth-status');
+      const nameRow = this.drawer?.querySelector('.drawer-header .display-name');
+      const nameValue = this.drawer?.querySelector('.drawer-header .display-name .value');
       if (loginBtn) loginBtn.style.display = this.authenticated ? 'none' : 'inline-block';
       if (logoutBtn) logoutBtn.style.display = this.authenticated ? 'inline-block' : 'none';
       if (statusEl) {
         statusEl.textContent = this.authenticated ? 'Signed in' : 'Signed out';
         statusEl.style.color = this.authenticated ? '#1db954' : '#b3b3b3';
       }
+      if (this.authenticated && nameRow) {
+        nameRow.style.display = 'flex';
+        // Fetch profile via background (has token)
+        try {
+          const profResp = await new Promise((resolve, reject) => {
+            try { chrome.runtime.sendMessage({ type: 'GET_PROFILE' }, resolve); } catch (e) { reject(e); }
+          });
+          const profile = profResp?.data || null;
+          const display = profile?.username || (profile?.email ? this.maskEmail(profile.email) : '');
+          if (nameValue) nameValue.textContent = display || '';
+        } catch (_) {}
+      } else if (nameRow) {
+        nameRow.style.display = 'none';
+      }
     } catch (_) {}
+  }
+
+  maskEmail(email) {
+    try {
+      const [local, domain] = String(email || '').split('@');
+      if (!local || !domain) return '';
+      if (local.length <= 2) return `${local[0]}***@${domain}`;
+      return `${local[0]}${'*'.repeat(Math.max(3, local.length - 2))}${local[local.length - 1]}@${domain}`;
+    } catch (_) { return ''; }
+  }
+
+  async updateUsername(username) {
+    try {
+      const resp = await new Promise((resolve, reject) => {
+        try { chrome.runtime.sendMessage({ type: 'UPDATE_USERNAME', payload: { username } }, resolve); } catch (e) { reject(e); }
+      });
+      if (!resp?.success) throw new Error(resp?.error || 'failed');
+      return resp.data;
+    } catch (e) { throw e; }
   }
 
   debounce(func, wait) {
