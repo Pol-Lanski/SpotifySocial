@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5050;
 
 // Database connection
 const pool = new Pool({
@@ -28,7 +28,7 @@ app.use(helmet({
 const defaultCorsOrigins = [
   'https://open.spotify.com',
   'https://localhost:8443',
-  'http://localhost:5000'
+  'http://localhost:5050'
 ];
 
 const envCorsOrigins = (process.env.CORS_ORIGINS || '')
@@ -39,14 +39,7 @@ const envCorsOrigins = (process.env.CORS_ORIGINS || '')
 const allowedOrigins = envCorsOrigins.length > 0 ? envCorsOrigins : defaultCorsOrigins;
 
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like curl or server-to-server)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Allow wildcard for chrome-extension
-    if (origin.startsWith('chrome-extension://')) return callback(null, true);
-    return callback(new Error('Not allowed by CORS'));
-  },
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: false
@@ -363,6 +356,28 @@ process.on('SIGTERM', async () => {
   await pool.end();
   process.exit(0);
 });
+
+// Extra diagnostics to investigate unexpected exits
+process.on('beforeExit', (code) => {
+  console.error(`⚠️  Process beforeExit with code: ${code}`);
+});
+
+process.on('exit', (code) => {
+  console.error(`⚠️  Process exit with code: ${code}`);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('🚨 Uncaught Exception thrown:', err);
+});
+
+// Periodic heartbeat to confirm the event loop remains active
+setInterval(() => {
+  console.log('💓 Server heartbeat', new Date().toISOString());
+}, 300000); // every 5 minutes
 
 startServer().catch(error => {
   console.error('Failed to start server:', error);
