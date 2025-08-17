@@ -357,14 +357,35 @@ class SpotifyCommentsExtension {
     });
   }
 
+  setupEventListeners() {
+    // Close drawer with Escape key
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isDrawerOpen) {
+        this.closeDrawer();
+      }
+    });
+
+    // Recalculate UI on resize (debounced)
+    const onResize = this.debounce(() => this.updateUI(), 150);
+    window.addEventListener('resize', onResize);
+  }
+
   detectCurrentContext() {
     const url = window.location.href;
     const playlistMatch = url.match(/\/playlist\/([a-zA-Z0-9]+)/);
     
     if (playlistMatch) {
+      const previousPlaylistId = this.currentPlaylistId;
       this.currentPlaylistId = playlistMatch[1];
       console.log('🎵 Detected playlist:', this.currentPlaylistId);
       console.log('🔗 Full URL:', url);
+      // If the playlist changed, reset track context and load comments immediately
+      if (previousPlaylistId !== this.currentPlaylistId) {
+        this.currentTrackUri = null;
+        this.currentTab = 'playlist';
+        // Load comments right away so users don't wait for the polling interval
+        this.loadComments();
+      }
     } else {
       this.currentPlaylistId = null;
       console.log('❌ No playlist detected in URL:', url);
@@ -644,7 +665,7 @@ class SpotifyCommentsExtension {
       if (this.isDrawerOpen) {
         this.loadComments();
       }
-    }, 5000); // Poll every 5 seconds
+    }, 30000); // Poll every 30 seconds
   }
 
   stopPolling() {
@@ -665,6 +686,16 @@ class SpotifyCommentsExtension {
     if (override) return override;
     // Default to local HTTPS reverse proxy (Caddy)
     return 'https://localhost:8443';
+  }
+
+  debounce(func, wait) {
+    let timeoutId;
+    return (...args) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        func(...args);
+      }, wait);
+    };
   }
 
   escapeHtml(text) {
@@ -692,5 +723,9 @@ class SpotifyCommentsExtension {
 
 // Initialize the extension when content script loads
 if (window.location.hostname === 'open.spotify.com') {
-  new SpotifyCommentsExtension();
+  const __spotifyCommentsInstance = new SpotifyCommentsExtension();
+  // Marker for background.js to detect if content script is present
+  window.spotifyCommentsExtensionLoaded = true;
+  // Expose instance for debugging (optional)
+  window.__spotifyComments = __spotifyCommentsInstance;
 }

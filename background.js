@@ -147,8 +147,11 @@ class SpotifyCommentsBackground {
   }
 
   getApiUrl() {
-    // Use the external Replit URL since the server runs in Replit cloud, not user's localhost
-    return 'https://f1bda738-cf31-4dae-ac49-bd22ac121e8f-workspace-lanski.replit.app';
+    // Allow overriding API URL via localStorage for easier testing/migration
+    const override = localStorage.getItem('spotifyCommentsApiUrl');
+    if (override) return override;
+    // Default to local HTTPS reverse proxy (Caddy)
+    return 'https://localhost:8443';
   }
 
   // Store and retrieve extension settings

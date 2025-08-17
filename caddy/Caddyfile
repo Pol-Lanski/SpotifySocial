@@ -1,0 +1,27 @@
+{
+  auto_https disable_redirects
+}
+
+https://localhost:8443 {
+  tls internal
+
+  @api path /health /comments* /debug
+
+  @preflight {
+    method OPTIONS
+    path /health /comments* /debug
+  }
+  header @preflight {
+    Access-Control-Allow-Origin "https://open.spotify.com"
+    Access-Control-Allow-Methods "GET, POST, OPTIONS, DELETE"
+    Access-Control-Allow-Headers "Content-Type, Authorization"
+    Access-Control-Allow-Private-Network "true"
+  }
+  respond @preflight 204
+
+  reverse_proxy @api server:5050 {
+    header_up X-Forwarded-Proto https
+  }
+}
+
+

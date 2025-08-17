@@ -37,7 +37,7 @@ Create a `.env` file in the project root:
 ```
 DATABASE_URL=postgresql://USER:PASS@HOST:5432/DB_NAME
 NODE_ENV=production
-PORT=5000
+PORT=5050
 # Optional: override allowed CORS origins (comma-separated)
 # CORS_ORIGINS=https://open.spotify.com,https://api.your-domain.com
 ```
@@ -53,7 +53,14 @@ npm install
 npm start
 ```
 
-Run Caddy to provide HTTPS on `https://localhost:8443` that proxies to the Node server on `http://127.0.0.1:5000`:
+Install Caddy (first time only) and trust the local CA (so Chrome accepts localhost certs):
+
+```
+brew install caddy
+caddy trust
+```
+
+Run Caddy to provide HTTPS on `https://localhost:8443` that proxies to the Node server on `http://127.0.0.1:5050`:
 
 ```
 cd server
@@ -64,6 +71,13 @@ In the extension, the default API URL points to `https://localhost:8443`. You ca
 
 ```
 localStorage.setItem('spotifyCommentsApiUrl', 'https://your-api-domain')
+```
+
+Quick checks:
+
+```
+curl -v http://127.0.0.1:5050/health
+curl -vk https://localhost:8443/health
 ```
 
 ## Usage
@@ -123,7 +137,7 @@ localStorage.setItem('spotifyCommentsApiUrl', 'https://your-api-domain')
 ## Browser Compatibility
 
 - ✅ Chrome (primary support)
-- ✅ Brave (Chromium-based)
+- ✅ Brave (Chromium-based) (requires disabling shields)
 - ✅ Edge (Chromium-based)
 - ❓ Firefox (may require manifest conversion)
 
