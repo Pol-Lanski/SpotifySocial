@@ -10,12 +10,12 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # Copy server source
-COPY server ./server
+COPY backend/server.js ./server.js
 
 EXPOSE 5050
 
 ENV NODE_ENV=production
 
-CMD ["node", "server/server.js"]
+CMD ["node", "server.js"]
 
 

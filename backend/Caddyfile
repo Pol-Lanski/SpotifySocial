@@ -22,7 +22,7 @@ https://localhost:8443 {
   }
   respond @preflight 204
   
-  reverse_proxy @api 127.0.0.1:5050 {
+  reverse_proxy @api server:5050 {
     header_up X-Forwarded-Proto https
   }
 }
