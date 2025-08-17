@@ -25,3 +25,6 @@ Thumbs.db
 *.rej
 *.swo
 *.swn
+
+caddy-config/
+caddy-data/
