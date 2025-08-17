@@ -4,14 +4,22 @@ import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 
 const REDIRECT_URI = window.__AUTH_REDIRECT_URI__;
 const PRIVY_APP_ID = window.__PRIVY_APP_ID__;
+const FORCE_NEW_LOGIN = Boolean(window.__FORCE_NEW_LOGIN__);
+const FORCE_FLAG_KEY = 'privy_force_new_done';
 
 function LoginInner() {
-  const { ready, authenticated, login, getAccessToken } = usePrivy();
+  const { ready, authenticated, login, getAccessToken, logout } = usePrivy();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     (async () => {
       if (!ready) return;
+      if (FORCE_NEW_LOGIN && !sessionStorage.getItem(FORCE_FLAG_KEY)) {
+        sessionStorage.setItem(FORCE_FLAG_KEY, '1');
+        try { await logout(); } catch (_) {}
+        try { await login({ withEmail: true }); } catch (_) {}
+        return;
+      }
       if (authenticated) {
         try {
           setBusy(true);
@@ -42,5 +50,8 @@ function App() {
 
 const root = createRoot(document.getElementById('root'));
 root.render(React.createElement(App));
+
+// Mark that the page bootstrapped (used by server-side fallback loader)
+window.__AUTH_PAGE_BOOTSTRAPPED__ = true;
 
 

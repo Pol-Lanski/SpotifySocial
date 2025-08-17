@@ -39,7 +39,7 @@ class SpotifyCommentsBackground {
           break;
 
         case 'OPEN_LOGIN':
-          await this.openHostedLogin();
+          await this.openHostedLogin(message?.payload?.forceNew === true);
           sendResponse({ success: true });
           break;
 
@@ -61,6 +61,29 @@ class SpotifyCommentsBackground {
         case 'CHECK_BACKEND_STATUS':
           const status = await this.checkBackendStatus();
           sendResponse({ success: true, data: status });
+          break;
+
+        case 'LOGOUT':
+          await this.clearSession();
+          sendResponse({ success: true });
+          break;
+
+        case 'GET_PROFILE':
+          try {
+            const prof = await this.getProfile();
+            sendResponse({ success: true, data: prof });
+          } catch (e) {
+            sendResponse({ success: false, error: e.message });
+          }
+          break;
+
+        case 'UPDATE_USERNAME':
+          try {
+            const updated = await this.updateUsername(message?.payload?.username);
+            sendResponse({ success: true, data: updated });
+          } catch (e) {
+            sendResponse({ success: false, error: e.message });
+          }
           break;
 
         default:
@@ -92,11 +115,20 @@ class SpotifyCommentsBackground {
     chrome.runtime.sendMessage({ type: 'PRIVY_SESSION_UPDATED' }).catch(() => {});
   }
 
-  async openHostedLogin() {
+  async clearSession() {
+    try {
+      this.session = null;
+      await chrome.storage.local.remove('session');
+    } finally {
+      chrome.runtime.sendMessage({ type: 'PRIVY_SESSION_UPDATED' }).catch(() => {});
+    }
+  }
+
+  async openHostedLogin(forceNew = false) {
     // Use WebAuthFlow to capture a redirect back to the extension with a token
     const baseUrl = this.getApiUrl();
     const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/privy`; // special redirect for extensions
-    const startUrl = `${baseUrl}/auth/start?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const startUrl = `${baseUrl}/auth/start?redirect_uri=${encodeURIComponent(redirectUri)}${forceNew ? '&force_new=1' : ''}`;
     try {
       const redirect = await chrome.identity.launchWebAuthFlow({
         url: startUrl,
@@ -222,6 +254,31 @@ class SpotifyCommentsBackground {
     } catch (error) {
       return { online: false };
     }
+  }
+
+  async getProfile() {
+    if (!this.session?.token) throw new Error('Not authenticated');
+    const baseUrl = this.getApiUrl();
+    const r = await fetch(`${baseUrl}/auth/me`, {
+      headers: { 'Authorization': `Bearer ${this.session.token}` }
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  }
+
+  async updateUsername(username) {
+    if (!this.session?.token) throw new Error('Not authenticated');
+    const baseUrl = this.getApiUrl();
+    const r = await fetch(`${baseUrl}/auth/me/username`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.session.token}`
+      },
+      body: JSON.stringify({ username })
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
   }
 
   async ensureContentScriptInjected(tabId) {

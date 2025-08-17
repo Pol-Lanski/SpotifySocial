@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     privy_user_id TEXT UNIQUE NOT NULL,
     email TEXT NULL,
+    username TEXT UNIQUE NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

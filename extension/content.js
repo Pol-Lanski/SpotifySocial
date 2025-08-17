@@ -34,7 +34,20 @@ class SpotifyCommentsExtension {
       chrome.runtime.onMessage.addListener((msg) => {
         if (msg?.type === 'PRIVY_SESSION_UPDATED') {
           this.fetchAuthState();
+          if (this.isDrawerOpen && this.currentPlaylistId) {
+            this.loadComments();
+          }
         }
+      });
+      chrome.storage.onChanged.addListener((changes, area) => {
+        try {
+          if (area === 'local' && changes && Object.prototype.hasOwnProperty.call(changes, 'session')) {
+            this.fetchAuthState();
+            if (this.isDrawerOpen && this.currentPlaylistId) {
+              this.loadComments();
+            }
+          }
+        } catch (_) {}
       });
     } catch (_) {}
   }
@@ -132,6 +145,73 @@ class SpotifyCommentsExtension {
         font-weight: 700;
         margin-bottom: 12px;
       }
+
+      .auth-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 4px;
+      }
+
+      .auth-status {
+        color: #b3b3b3;
+        font-family: 'Circular', Arial, sans-serif;
+        font-size: 12px;
+      }
+
+      .auth-actions { display: flex; gap: 8px; }
+
+      .auth-button {
+        cursor: pointer;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-family: 'Circular', Arial, sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        transition: all 0.15s ease;
+      }
+
+      .login-button.auth-button {
+        background: #1db954;
+        color: #ffffff;
+        border: none;
+      }
+
+      .login-button.auth-button:hover { background: #1ed760; }
+
+      .logout-button.auth-button {
+        background: transparent;
+        color: #ffffff;
+        border: 1px solid #535353;
+      }
+
+      .logout-button.auth-button:hover {
+        border-color: #1db954;
+        color: #1db954;
+      }
+
+      .display-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .display-name label { color: #b3b3b3; font-size: 12px; }
+      .display-name .value { color: #ffffff; font-size: 12px; font-weight: 600; }
+      .display-name .edit-btn {
+        background: none; border: 1px solid #535353; color: #b3b3b3;
+        border-radius: 6px; padding: 4px 8px; cursor: pointer;
+      }
+      .display-name .edit-btn:hover { border-color: #1db954; color: #1db954; }
+      .display-name .edit-input {
+        background: #2a2a2a; color: #fff; border: 1px solid #535353; border-radius: 6px;
+        padding: 6px 8px; font-size: 12px; width: 180px;
+      }
+      .display-name .save-btn {
+        background: #1db954; color: #fff; border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer;
+      }
+      .display-name .save-btn:hover { background: #1ed760; }
 
       .drawer-tabs {
         display: flex;
@@ -438,9 +518,17 @@ class SpotifyCommentsExtension {
       <div class="drawer-header">
         <button class="close-button">✕</button>
         <div class="drawer-title">Comments for Playlist</div>
-        <div class="drawer-tabs">
-          <button class="tab-button active" data-tab="playlist">Playlist</button>
-          <button class="tab-button" data-tab="track">This Track</button>
+        <div class="auth-bar">
+          <span class="auth-status">Checking status…</span>
+          <div class="auth-actions">
+            <button class="auth-button login-button">Sign in</button>
+            <button class="auth-button logout-button" style="display:none;">Log out</button>
+          </div>
+        </div>
+        <div class="display-name" style="display:none;">
+          <label>Name:</label>
+          <span class="value"></span>
+          <button class="edit-btn" title="Edit display name">✎</button>
         </div>
       </div>
       <div class="comment-list" id="comment-list">
@@ -450,7 +538,6 @@ class SpotifyCommentsExtension {
         <textarea class="composer-input" placeholder="Add a comment..." rows="3"></textarea>
         <div class="composer-actions">
           <button class="send-button">Send</button>
-          <button class="login-button" style="margin-left:8px; display:none;">Sign in</button>
         </div>
       </div>
     `;
@@ -459,17 +546,13 @@ class SpotifyCommentsExtension {
     const closeButton = this.drawer.querySelector('.close-button');
     closeButton.addEventListener('click', () => this.closeDrawer());
     
-    const tabButtons = this.drawer.querySelectorAll('.tab-button');
-    tabButtons.forEach(button => {
-      button.addEventListener('click', (e) => {
-        const tab = e.target.dataset.tab;
-        this.switchTab(tab);
-      });
-    });
-    
     const sendButton = this.drawer.querySelector('.send-button');
     const textArea = this.drawer.querySelector('.composer-input');
-    const loginButton = this.drawer.querySelector('.login-button');
+    const loginButton = this.drawer.querySelector('.drawer-header .login-button');
+    const logoutButton = this.drawer.querySelector('.drawer-header .logout-button');
+    const displayNameRow = this.drawer.querySelector('.drawer-header .display-name');
+    const displayNameValue = this.drawer.querySelector('.drawer-header .display-name .value');
+    const editBtn = this.drawer.querySelector('.drawer-header .display-name .edit-btn');
     
     sendButton.addEventListener('click', () => this.sendComment());
     textArea.addEventListener('keydown', (e) => {
@@ -479,8 +562,89 @@ class SpotifyCommentsExtension {
     });
     loginButton.addEventListener('click', () => {
       try {
-        chrome.runtime.sendMessage({ type: 'OPEN_LOGIN' });
+        // Request a fresh login so the user can pick another email/account
+        chrome.runtime.sendMessage({ type: 'OPEN_LOGIN', payload: { forceNew: true } });
       } catch (_) {}
+    });
+    logoutButton.addEventListener('click', async () => {
+      try {
+        await new Promise((resolve, reject) => {
+          try {
+            chrome.runtime.sendMessage({ type: 'LOGOUT' }, (r) => {
+              if (r?.success) resolve(r);
+              else reject(new Error(r?.error || 'Failed'));
+            });
+          } catch (e) { reject(e); }
+        });
+        this.fetchAuthState();
+        if (this.isDrawerOpen && this.currentPlaylistId) {
+          this.loadComments();
+        }
+      } catch (_) {}
+    });
+
+    // Edit display name flow
+    if (editBtn) editBtn.addEventListener('click', () => {
+      if (!this.authenticated) return;
+      const wrapper = this.drawer.querySelector('.drawer-header .display-name');
+      const current = (displayNameValue && displayNameValue.textContent) ? displayNameValue.textContent : '';
+      wrapper.innerHTML = `
+        <label>Name:</label>
+        <input class="edit-input" type="text" maxlength="32" value="${this.escapeHtml(current)}" />
+        <button class="save-btn">Save</button>
+      `;
+      const input = wrapper.querySelector('.edit-input');
+      const save = wrapper.querySelector('.save-btn');
+      const finish = (name) => {
+        wrapper.innerHTML = `
+          <label>Name:</label>
+          <span class="value">${this.escapeHtml(name)}</span>
+          <button class="edit-btn" title="Edit display name">✎</button>
+        `;
+        const reb = wrapper.querySelector('.edit-btn');
+        if (reb) {
+          reb.addEventListener('click', () => {
+            // reopen edit
+            const valEl = wrapper.querySelector('.value');
+            const currentName = valEl ? valEl.textContent : '';
+            wrapper.innerHTML = `
+              <label>Name:</label>
+              <input class=\"edit-input\" type=\"text\" maxlength=\"32\" value=\"${this.escapeHtml(currentName)}\" />
+              <button class=\"save-btn\">Save</button>
+            `;
+            const in2 = wrapper.querySelector('.edit-input');
+            const sv2 = wrapper.querySelector('.save-btn');
+            const doSave2 = async () => {
+              const newName2 = in2.value.trim();
+              if (newName2.length < 2 || newName2.length > 32) { alert('Name must be 2 to 32 characters.'); return; }
+              try { const resp2 = await this.updateUsername(newName2); finish(resp2?.username || newName2); this.fetchAuthState(); } catch (_) { alert('Failed to update name.'); }
+            };
+            sv2.addEventListener('click', doSave2);
+            in2.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave2(); });
+            in2.focus();
+          });
+        }
+      };
+      const doSave = async () => {
+        const newName = input.value.trim();
+        if (newName.length < 2 || newName.length > 32) {
+          alert('Name must be 2 to 32 characters.');
+          return;
+        }
+        try {
+          const resp = await this.updateUsername(newName);
+          finish(resp?.username || newName);
+          // refresh comments to show new author for future posts
+          this.fetchAuthState();
+        } catch (e) {
+          alert('Failed to update name.');
+        }
+      };
+      save.addEventListener('click', doSave);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSave();
+      });
+      input.focus();
     });
     
     this.shadowRoot.appendChild(this.drawer);
@@ -565,12 +729,9 @@ class SpotifyCommentsExtension {
   }
 
   switchTab(tab) {
-    const tabButtons = this.drawer.querySelectorAll('.tab-button');
-    tabButtons.forEach(button => {
-      button.classList.toggle('active', button.dataset.tab === tab);
-    });
-    
-    this.currentTab = tab;
+    // In the simplified UI, we always show playlist comments.
+    this.currentTab = 'playlist';
+    this.currentTrackUri = null;
     this.loadComments();
   }
 
@@ -583,7 +744,7 @@ class SpotifyCommentsExtension {
     try {
       const payload = {
         playlistId: this.currentPlaylistId,
-        trackUri: this.currentTab === 'track' ? this.currentTrackUri : null
+        trackUri: null
       };
       const resp = await new Promise((resolve, reject) => {
         try {
@@ -613,8 +774,8 @@ class SpotifyCommentsExtension {
       <div class="comment-item" data-id="${comment.id}">
         <div class="comment-text">${this.escapeHtml(comment.text)}</div>
         <div class="comment-meta">
-          ${this.formatDate(comment.created_at)}
-          ${comment.is_owner ? '<button class="delete-button" style="margin-left:8px; background:none; border:none; color:#e22134; cursor:pointer;">Delete</button>' : ''}
+          ${comment.author ? this.escapeHtml(comment.author) + ' · ' : ''}${this.formatDate(comment.created_at)}
+          ${(this.authenticated && comment.is_owner) ? '<button class="delete-button" style="margin-left:8px; background:none; border:none; color:#e22134; cursor:pointer;">Delete</button>' : ''}
         </div>
       </div>
     `).join('');
@@ -640,7 +801,7 @@ class SpotifyCommentsExtension {
     if (!text || !this.currentPlaylistId) return;
     if (!this.authenticated) {
       alert('Please sign in to post comments.');
-      try { chrome.runtime.sendMessage({ type: 'OPEN_LOGIN' }); } catch (_) {}
+      try { chrome.runtime.sendMessage({ type: 'OPEN_LOGIN', payload: { forceNew: true } }); } catch (_) {}
       return;
     }
     
@@ -674,7 +835,10 @@ class SpotifyCommentsExtension {
 
   async deleteComment(commentId) {
     try {
-      if (!this.authenticated) return;
+      if (!this.authenticated) {
+        try { chrome.runtime.sendMessage({ type: 'OPEN_LOGIN', payload: { forceNew: true } }); } catch (_) {}
+        return;
+      }
       const res = await new Promise((resolve, reject) => {
         try {
           chrome.runtime.sendMessage({ type: 'DELETE_COMMENT', payload: { commentId } }, (resp) => {
@@ -726,9 +890,51 @@ class SpotifyCommentsExtension {
       const data = resp?.data || {};
       this.authenticated = !!data.authenticated;
       this.privyUserId = data.privyUserId || null;
-      const loginBtn = this.drawer?.querySelector('.login-button');
+      const loginBtn = this.drawer?.querySelector('.drawer-header .login-button');
+      const logoutBtn = this.drawer?.querySelector('.drawer-header .logout-button');
+      const statusEl = this.drawer?.querySelector('.drawer-header .auth-status');
+      const nameRow = this.drawer?.querySelector('.drawer-header .display-name');
+      const nameValue = this.drawer?.querySelector('.drawer-header .display-name .value');
       if (loginBtn) loginBtn.style.display = this.authenticated ? 'none' : 'inline-block';
+      if (logoutBtn) logoutBtn.style.display = this.authenticated ? 'inline-block' : 'none';
+      if (statusEl) {
+        statusEl.textContent = this.authenticated ? 'Signed in' : 'Signed out';
+        statusEl.style.color = this.authenticated ? '#1db954' : '#b3b3b3';
+      }
+      if (this.authenticated && nameRow) {
+        nameRow.style.display = 'flex';
+        // Fetch profile via background (has token)
+        try {
+          const profResp = await new Promise((resolve, reject) => {
+            try { chrome.runtime.sendMessage({ type: 'GET_PROFILE' }, resolve); } catch (e) { reject(e); }
+          });
+          const profile = profResp?.data || null;
+          const display = profile?.username || (profile?.email ? this.maskEmail(profile.email) : '');
+          if (nameValue) nameValue.textContent = display || '';
+        } catch (_) {}
+      } else if (nameRow) {
+        nameRow.style.display = 'none';
+      }
     } catch (_) {}
+  }
+
+  maskEmail(email) {
+    try {
+      const [local, domain] = String(email || '').split('@');
+      if (!local || !domain) return '';
+      if (local.length <= 2) return `${local[0]}***@${domain}`;
+      return `${local[0]}${'*'.repeat(Math.max(3, local.length - 2))}${local[local.length - 1]}@${domain}`;
+    } catch (_) { return ''; }
+  }
+
+  async updateUsername(username) {
+    try {
+      const resp = await new Promise((resolve, reject) => {
+        try { chrome.runtime.sendMessage({ type: 'UPDATE_USERNAME', payload: { username } }, resolve); } catch (e) { reject(e); }
+      });
+      if (!resp?.success) throw new Error(resp?.error || 'failed');
+      return resp.data;
+    } catch (e) { throw e; }
   }
 
   debounce(func, wait) {
