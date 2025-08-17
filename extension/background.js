@@ -39,7 +39,7 @@ class SpotifyCommentsBackground {
           break;
 
         case 'OPEN_LOGIN':
-          await this.openHostedLogin();
+          await this.openHostedLogin(message?.payload?.forceNew === true);
           sendResponse({ success: true });
           break;
 
@@ -61,6 +61,11 @@ class SpotifyCommentsBackground {
         case 'CHECK_BACKEND_STATUS':
           const status = await this.checkBackendStatus();
           sendResponse({ success: true, data: status });
+          break;
+
+        case 'LOGOUT':
+          await this.clearSession();
+          sendResponse({ success: true });
           break;
 
         default:
@@ -92,11 +97,20 @@ class SpotifyCommentsBackground {
     chrome.runtime.sendMessage({ type: 'PRIVY_SESSION_UPDATED' }).catch(() => {});
   }
 
-  async openHostedLogin() {
+  async clearSession() {
+    try {
+      this.session = null;
+      await chrome.storage.local.remove('session');
+    } finally {
+      chrome.runtime.sendMessage({ type: 'PRIVY_SESSION_UPDATED' }).catch(() => {});
+    }
+  }
+
+  async openHostedLogin(forceNew = false) {
     // Use WebAuthFlow to capture a redirect back to the extension with a token
     const baseUrl = this.getApiUrl();
     const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/privy`; // special redirect for extensions
-    const startUrl = `${baseUrl}/auth/start?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const startUrl = `${baseUrl}/auth/start?redirect_uri=${encodeURIComponent(redirectUri)}${forceNew ? '&force_new=1' : ''}`;
     try {
       const redirect = await chrome.identity.launchWebAuthFlow({
         url: startUrl,

@@ -126,6 +126,7 @@ app.get('/health', (req, res) => {
 // Auth start: serves a minimal hosted login page
 app.get('/auth/start', (req, res) => {
   const redirectUri = req.query.redirect_uri || '';
+  const forceNew = req.query.force_new === '1';
   res.setHeader('Content-Type', 'text/html');
   // Render a minimal login page that loads a locally bundled UI (no external CDN)
   const appId = PRIVY_APP_ID || '';
@@ -158,8 +159,16 @@ app.get('/auth/start', (req, res) => {
       <script type="module">
         window.__AUTH_REDIRECT_URI__ = ${JSON.stringify(redirectUri)};
         window.__PRIVY_APP_ID__ = ${JSON.stringify(appId)};
+        window.__FORCE_NEW_LOGIN__ = ${JSON.stringify(forceNew)};
       </script>
       <script type="module" src="/static/auth-login.bundle.js"></script>
+      <script>
+        // Fallback: if bundling omitted the exported globals for some reason,
+        // expose them again for the page script to access.
+        window.__AUTH_REDIRECT_URI__ = window.__AUTH_REDIRECT_URI__ || ${JSON.stringify(redirectUri)};
+        window.__PRIVY_APP_ID__ = window.__PRIVY_APP_ID__ || ${JSON.stringify(appId)};
+        window.__FORCE_NEW_LOGIN__ = window.__FORCE_NEW_LOGIN__ || ${JSON.stringify(forceNew)};
+      </script>
     </body>
   </html>`);
 });
