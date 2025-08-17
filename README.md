@@ -1,150 +1,133 @@
-# Spotify Playlist Comments Extension
+# Spotify Playlist Comments (JamSession)
 
-A Chrome browser extension that adds a commenting system to Spotify's web player. Share your thoughts on playlists and individual tracks with other extension users!
+A Chrome extension that adds a shared commenting layer to Spotify’s Web Player. Users can open a right‑side drawer to see and post comments on a playlist, switch to the current track tab, and spot small comment bubbles next to tracks that have discussion.
 
-## Features
+## What’s in the repo
 
-- 💬 Comment on Spotify playlists and individual tracks
-- 🔄 Real-time comment sharing between all extension users
-- 🎨 Dark theme UI that matches Spotify's design
-- 📱 Responsive design with floating comment button
-- 🔔 Track-level comment bubbles for enhanced discovery
-- ⚡ Optimistic UI updates for smooth user experience
+- `extension/`: Chrome MV3 extension (content script, background service worker, styles, popup)
+- `backend/`: Node.js + Express REST API and Postgres schema
+- `docker-compose.yml`: Spins up Postgres, the API server, and a Caddy HTTPS reverse proxy
 
-## Installation
+## Quick start (Docker Compose)
 
-### 1. Load the Extension in Chrome
-
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode" (toggle in top right)
-3. Click "Load unpacked"
-4. Select this project folder
-5. The extension should now appear in your extensions list
-
-### 2. Database Setup
-
-The extension uses Supabase for storing comments:
-
-1. Go to [Supabase dashboard](https://supabase.com/dashboard/projects)
-2. Create a new project (free tier available)
-3. Get your connection string from the project settings
-4. Put the connection string into a `.env` file at the project root as `DATABASE_URL`
-
-### 3. Configure Environment (.env)
-
-Create a `.env` file in the project root:
+1) Create a `.env` in the project root (used by Docker services):
 
 ```
-DATABASE_URL=postgresql://USER:PASS@HOST:5432/DB_NAME
-NODE_ENV=production
+POSTGRES_DB=spotify_comments
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+DATABASE_URL=postgres://postgres:postgres@db:5432/spotify_comments
+NODE_ENV=development
 PORT=5050
-# Optional: override allowed CORS origins (comma-separated)
-# CORS_ORIGINS=https://open.spotify.com,https://api.your-domain.com
+# Comma‑separated origins allowed to call the API
+CORS_ORIGINS=https://open.spotify.com,https://localhost:8443,http://localhost:5050
 ```
 
-The server reads these values via `dotenv` on startup.
-
-### 4. Start the Backend (local HTTPS via Caddy)
-
-Install dependencies and run the server:
+2) Start the stack:
 
 ```
-npm install
-npm start
+docker compose up -d --build
 ```
 
-Install Caddy (first time only) and trust the local CA (so Chrome accepts localhost certs):
+This brings up:
+- Postgres on `db:5432` (initialized with `backend/db/schema.sql`)
+- API server on `http://localhost:5050`
+- Caddy reverse proxy with local HTTPS on `https://localhost:8443`
+
+3) Load the extension in Chrome:
+
+1. Go to `chrome://extensions/`
+2. Enable Developer mode
+3. Click “Load unpacked” and select the `extension/` folder
+
+4) Verify the backend:
 
 ```
-brew install caddy
-caddy trust
+curl -s http://localhost:5050/health | jq
+curl -sk https://localhost:8443/health | jq
 ```
 
-Run Caddy to provide HTTPS on `https://localhost:8443` that proxies to the Node server on `http://127.0.0.1:5050`:
+If Chrome warns about the local certificate, you may need to trust the Caddy local CA (see Troubleshooting).
 
-```
-cd server
-caddy run --config Caddyfile
-```
+## Using the extension
 
-In the extension, the default API URL points to `https://localhost:8443`. You can override at runtime:
+1. Navigate to `https://open.spotify.com`
+2. Open any playlist
+3. Click the floating “💬 Comments” button (bottom‑right)
+4. Post a playlist‑level comment, or switch to “This Track” and comment on the current song
+5. Track rows with comments show a small 💬 bubble you can click
+
+Tip: You can override the API URL at runtime without rebuilding the extension:
 
 ```
 localStorage.setItem('spotifyCommentsApiUrl', 'https://your-api-domain')
 ```
 
-Quick checks:
+## Project structure
 
 ```
-curl -v http://127.0.0.1:5050/health
-curl -vk https://localhost:8443/health
+JamSession/
+├─ extension/
+│  ├─ manifest.json
+│  ├─ content.js
+│  ├─ background.js
+│  ├─ popup.html
+│  ├─ styles.css
+│  ├─ components/
+│  └─ utils/
+├─ backend/
+│  ├─ server.js
+│  ├─ Caddyfile
+│  └─ db/
+│     └─ schema.sql
+├─ docker-compose.yml
+└─ package.json
 ```
 
-## Usage
+## API
 
-1. Navigate to [Spotify Web Player](https://open.spotify.com)
-2. Go to any playlist page
-3. Click the floating "💬 Comments" button in the bottom-right corner
-4. View existing comments or add your own!
-5. Look for small comment bubbles on individual tracks that have comments
+Base URL (dev): `https://localhost:8443`
 
-## Project Structure
+- `GET /health`
+- `GET /comments?playlist_id=<id>[&track_uri=<uri>]`
+- `POST /comments` (JSON: `{ playlist_id, text, track_uri? }`)
+- `POST /comments/counts` (JSON: `{ playlist_id, track_uris: string[] }`)
+- `GET /comments/stats/:playlist_id`
+
+Notes:
+- Inputs validated server‑side (IDs, URI format, length, limits)
+- Write endpoints are rate‑limited
+- CORS allowlist defaults to Spotify + local dev origins and can be overridden via `CORS_ORIGINS`
+
+## How it works
+
+- **Extension (MV3)**: A content script injects a Shadow DOM overlay for isolation, adds a floating button and a slide‑in drawer, and observes SPA navigation (MutationObserver + history hooks) to detect playlist changes and refresh state.
+- **Backend**: Express + `pg` Pool on Node 20. Stores comments in Postgres keyed by `playlist_id` and optional `track_uri`. Endpoints above.
+- **HTTPS & CORS**: Caddy terminates HTTPS locally on `:8443` and reverse‑proxies to the API on `:5050`, including Private Network Access preflight headers.
+
+## Alternate local run (no Docker)
 
 ```
-├── manifest.json          # Chrome extension manifest
-├── content.js             # Main content script injected into Spotify
-├── background.js          # Service worker for extension
-├── styles.css            # Extension styles
-├── popup.html            # Extension popup interface
-├── server/               # Backend server (separated)
-│   ├── server.js         # Express.js backend server
-│   └── db/               # Database artifacts
-│       └── schema.sql    # Database schema
-├── components/           # UI components
-│   ├── CommentPanel.js   # Main comment panel
-│   ├── CommentButton.js  # Floating comment button
-│   └── CommentBubble.js  # Track comment indicators
-├── utils/                # Utility modules
-│   ├── spotify.js        # Spotify integration helpers
-│   └── api.js           # Backend API communication
-└── db/
-    └── schema.sql       # Database schema
+npm install
+DATABASE_URL=postgres://localhost:5432/spotify_comments npm start
 ```
 
-## API Endpoints
+You’ll need a running PostgreSQL and to handle HTTPS yourself (e.g., host Caddy locally and point the extension to its HTTPS origin).
 
-- `GET /health` - Health check
-- `GET /comments?playlist_id=<id>[&track_uri=<uri>]` - Get comments
-- `POST /comments` - Post new comment
-- `POST /comments/counts` - Get comment counts for tracks
-- `GET /comments/stats/:playlist_id` - Get playlist statistics
+## Troubleshooting
 
-## Technical Details
+- **Chrome blocks API calls** (CORS/PNA/cert): ensure the Docker stack is running, and visit `https://localhost:8443/health`. If the cert is untrusted, import the Caddy local CA from `caddy-data/pki/authorities/local` into your System Keychain or install Caddy locally and run `caddy trust`.
+- **Comments don’t appear**: open DevTools on the Spotify tab and check the console for network errors; the extension logs fetch URLs and statuses.
 
-- **Frontend**: Vanilla JavaScript with Shadow DOM for CSS isolation
-- **Backend**: Node.js with Express, PostgreSQL database
-- **Extension**: Chrome Manifest V3 with content scripts
-- **Database**: PostgreSQL with Supabase hosting
-- **Security**: Rate limiting, input validation, CORS protection
+## Security & privacy
 
-## Development
+- MVP has no auth; comments are public
+- Input validation and sanitization on the server
+- Helmet security headers, rate limiting on writes
+- All traffic over HTTPS in dev/prod
 
-1. Make changes to the extension files
-2. Reload the extension in `chrome://extensions/`
-3. Refresh any open Spotify tabs to see changes
-4. Check the browser console for debugging info
+## Roadmap
 
-## Browser Compatibility
-
-- ✅ Chrome (primary support)
-- ✅ Brave (Chromium-based) (requires disabling shields)
-- ✅ Edge (Chromium-based)
-- ❓ Firefox (may require manifest conversion)
-
-## Privacy & Security
-
-- No user authentication required (MVP version)
-- Comments are public and visible to all extension users
-- Rate limiting prevents spam and abuse
-- Input validation and sanitization on all user content
-- HTTPS/TLS encryption for all data transmission
+- Optional accounts and moderation tools
+- Real‑time updates (SSE/websockets) to replace polling
+- Improved track bubble coverage and caching
