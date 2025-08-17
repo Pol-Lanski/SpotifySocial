@@ -7,12 +7,12 @@
 https://localhost:8443 {
   tls internal
   
-  @api path /health /comments* /debug
+  @api path /health /comments* /debug /auth* /static*
 
   # Handle CORS preflight locally (Chrome may send Private-Network preflights)
   @preflight {
     method OPTIONS
-    path /health /comments* /debug
+    path /health /comments* /debug /auth* /static*
   }
   header @preflight {
     Access-Control-Allow-Origin "https://open.spotify.com"

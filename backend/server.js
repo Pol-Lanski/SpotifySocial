@@ -5,9 +5,29 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const jwt = require('jsonwebtoken');
+const { PrivyClient } = require('@privy-io/server-auth');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 5050;
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_insecure_secret_change_me';
+
+// Initialize Privy client (server-side)
+const PRIVY_APP_ID = process.env.PRIVY_APP_ID || '';
+const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET || '';
+let privy = null;
+if (PRIVY_APP_ID && PRIVY_APP_SECRET) {
+  try {
+    privy = new PrivyClient(PRIVY_APP_ID, PRIVY_APP_SECRET);
+    console.log('✅ PrivyClient initialized');
+  } catch (e) {
+    console.warn('⚠️ Failed to initialize PrivyClient:', e.message);
+  }
+} else {
+  console.warn('⚠️ PRIVY_APP_ID/PRIVY_APP_SECRET not set. /auth/exchange will be disabled.');
+}
 
 // Database connection
 const pool = new Pool({
@@ -39,13 +59,60 @@ const envCorsOrigins = (process.env.CORS_ORIGINS || '')
 const allowedOrigins = envCorsOrigins.length > 0 ? envCorsOrigins : defaultCorsOrigins;
 
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (origin.startsWith('chrome-extension://')) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(null, false);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: false
 }));
 
 app.use(express.json({ limit: '1mb' }));
+// Serve static assets for hosted auth UI if present
+app.use('/static', express.static(path.join(__dirname, 'static'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    }
+  }
+}));
+
+// Helper: issue app JWT with user identifiers
+function issueAppToken(payload) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+}
+
+// Middleware: authenticate app JWT
+function authenticate(req, res, next) {
+  try {
+    const auth = req.headers['authorization'] || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+
+async function upsertUserByPrivyId(client, { privyUserId, email }) {
+  const existing = await client.query('SELECT id, privy_user_id FROM users WHERE privy_user_id = $1', [privyUserId]);
+  if (existing.rows.length > 0) {
+    if (email) {
+      await client.query('UPDATE users SET email = $1, updated_at = NOW() WHERE privy_user_id = $2', [email, privyUserId]);
+    }
+    return existing.rows[0];
+  }
+  const insert = await client.query(
+    'INSERT INTO users (privy_user_id, email) VALUES ($1, $2) RETURNING id, privy_user_id',
+    [privyUserId, email || null]
+  );
+  return insert.rows[0];
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -54,6 +121,47 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '1.0.0'
   });
+});
+
+// Auth start: serves a minimal hosted login page
+app.get('/auth/start', (req, res) => {
+  const redirectUri = req.query.redirect_uri || '';
+  res.setHeader('Content-Type', 'text/html');
+  // Render a minimal login page that loads a locally bundled UI (no external CDN)
+  const appId = PRIVY_APP_ID || '';
+  res.send(`<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Sign in</title>
+      <style>
+        :root { color-scheme: light dark; }
+        body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin: 0; padding: 0; display:flex; min-height:100vh; }
+        .container { margin: auto; max-width: 420px; width: 100%; padding: 24px; }
+        .card { border: 1px solid #ddd; border-radius: 12px; padding: 24px; background: white; color: #111; }
+        @media (prefers-color-scheme: dark) { .card { background: #111; color: #fafafa; border-color: #333; }}
+        h1 { font-size: 20px; margin: 0 0 12px; }
+        p { margin: 0 0 16px; opacity: 0.8; }
+        button { padding: 10px 14px; border-radius: 8px; border: none; background: #1db954; color: white; cursor: pointer; font-weight: 600; }
+        button:disabled { background: #888; cursor: not-allowed; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="card">
+          <h1>Sign in</h1>
+          <p>The ‘Spotify Playlist Comments’ extension wants to access your account.</p>
+          <div id="root">Loading…</div>
+        </div>
+      </div>
+      <script type="module">
+        window.__AUTH_REDIRECT_URI__ = ${JSON.stringify(redirectUri)};
+        window.__PRIVY_APP_ID__ = ${JSON.stringify(appId)};
+      </script>
+      <script type="module" src="/static/auth-login.bundle.js"></script>
+    </body>
+  </html>`);
 });
 
 // Debug endpoint for extension testing
@@ -86,7 +194,7 @@ app.get('/comments', async (req, res) => {
     }
     
     let query = `
-      SELECT id, playlist_id, track_uri, text, created_at
+      SELECT id, playlist_id, track_uri, text, created_at, user_id
       FROM comments 
       WHERE playlist_id = $1
     `;
@@ -105,7 +213,27 @@ app.get('/comments', async (req, res) => {
     
     const result = await pool.query(query, params);
     
-    res.json(result.rows);
+    // Annotate ownership if caller is authenticated
+    let callerUserId = null;
+    try {
+      const auth = req.headers['authorization'] || '';
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+      if (token) {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        callerUserId = decoded.uid || null;
+      }
+    } catch (_) {}
+
+    const rows = result.rows.map(r => ({
+      id: r.id,
+      playlist_id: r.playlist_id,
+      track_uri: r.track_uri,
+      text: r.text,
+      created_at: r.created_at,
+      is_owner: callerUserId ? r.user_id === callerUserId : false
+    }));
+    
+    res.json(rows);
   } catch (error) {
     console.error('Error fetching comments:', error);
     res.status(500).json({ 
@@ -115,8 +243,8 @@ app.get('/comments', async (req, res) => {
   }
 });
 
-// Post a new comment
-app.post('/comments', rateLimit({ windowMs: 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false, trustProxy: true }), async (req, res) => {
+// Post a new comment (requires auth)
+app.post('/comments', authenticate, rateLimit({ windowMs: 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false, trustProxy: true }), async (req, res) => {
   try {
     const { playlist_id, track_uri, text } = req.body;
     
@@ -153,12 +281,12 @@ app.post('/comments', rateLimit({ windowMs: 60 * 1000, max: 50, standardHeaders:
     }
     
     const query = `
-      INSERT INTO comments (playlist_id, track_uri, text)
-      VALUES ($1, $2, $3)
+      INSERT INTO comments (playlist_id, track_uri, text, user_id)
+      VALUES ($1, $2, $3, $4)
       RETURNING id, playlist_id, track_uri, text, created_at
     `;
     
-    const params = [playlist_id, track_uri || null, text.trim()];
+    const params = [playlist_id, track_uri || null, text.trim(), req.user.uid];
     const result = await pool.query(query, params);
     
     res.status(201).json(result.rows[0]);
@@ -270,8 +398,8 @@ app.get('/comments/stats/:playlist_id', async (req, res) => {
   }
 });
 
-// Delete a comment (for future moderation features)
-app.delete('/comments/:comment_id', async (req, res) => {
+// Delete a comment (owner only)
+app.delete('/comments/:comment_id', authenticate, async (req, res) => {
   try {
     const { comment_id } = req.params;
     
@@ -280,7 +408,15 @@ app.delete('/comments/:comment_id', async (req, res) => {
         error: 'comment_id is required' 
       });
     }
-    
+    // Check ownership
+    const owner = await pool.query('SELECT user_id FROM comments WHERE id = $1', [comment_id]);
+    if (owner.rows.length === 0) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    if (!owner.rows[0].user_id || owner.rows[0].user_id !== req.user.uid) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     const query = 'DELETE FROM comments WHERE id = $1 RETURNING id';
     const result = await pool.query(query, [comment_id]);
     
@@ -300,6 +436,70 @@ app.delete('/comments/:comment_id', async (req, res) => {
       error: 'Internal server error',
       message: 'Failed to delete comment'
     });
+  }
+});
+
+// Auth: exchange a Privy token for an app token
+app.post('/auth/exchange', async (req, res) => {
+  try {
+    const { privyToken } = req.body;
+    if (!privyToken) return res.status(400).json({ error: 'privyToken is required' });
+
+    // DEV mode: accept tokens starting with "dev." or when Privy isn't configured
+    if (!privy || String(privyToken).startsWith('dev.')) {
+      const privyUserId = String(privyToken).startsWith('dev.') ? String(privyToken).slice(4) : `dev_${Date.now()}`;
+      const userRow = await upsertUserByPrivyId(pool, { privyUserId, email: null });
+      const token = issueAppToken({ uid: userRow.id, sub: userRow.privy_user_id });
+      return res.json({ token, privyUserId: userRow.privy_user_id });
+    }
+
+    // Verify the Privy auth token and fetch user (production path)
+    const verified = await privy.verifyAuthToken(privyToken);
+    const userId = verified?.userId || verified?.id || null;
+    if (!userId) return res.status(401).json({ error: 'Invalid Privy token' });
+
+    // Optionally fetch user profile for email
+    let email = null;
+    try {
+      const user = await privy.getUser(userId);
+      email = user?.email?.address || null;
+    } catch (_) {}
+
+    const userRow = await upsertUserByPrivyId(pool, { privyUserId: userId, email });
+    const token = issueAppToken({ uid: userRow.id, sub: userRow.privy_user_id });
+    res.json({ token, privyUserId: userRow.privy_user_id });
+  } catch (e) {
+    console.error('Error in /auth/exchange:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Dev-only: emulate a Privy token for email login if Privy is not configured
+app.post('/auth/dev-login', async (req, res) => {
+  try {
+    if (privy) return res.status(400).json({ error: 'Dev login disabled when Privy configured' });
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'email is required' });
+    // Create a deterministic fake privyUserId for this email in dev
+    const privyUserId = 'dev_' + Buffer.from(email).toString('hex').slice(0, 24);
+    const userRow = await upsertUserByPrivyId(pool, { privyUserId, email });
+    const token = issueAppToken({ uid: userRow.id, sub: userRow.privy_user_id });
+    // Return a fake privyToken for the hosted page to complete the flow
+    res.json({ privyToken: `dev.${privyUserId}` });
+  } catch (e) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Auth: get current user from app token
+app.get('/auth/me', authenticate, async (req, res) => {
+  try {
+    const { uid, sub } = req.user;
+    const result = await pool.query('SELECT id, privy_user_id, email, created_at FROM users WHERE id = $1', [uid]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ id: result.rows[0].id, privy_user_id: sub, email: result.rows[0].email, created_at: result.rows[0].created_at });
+  } catch (e) {
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

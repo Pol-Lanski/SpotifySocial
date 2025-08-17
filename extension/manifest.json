@@ -6,7 +6,9 @@
   "permissions": [
     "activeTab",
     "storage",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "identity",
+    "scripting"
   ],
   "host_permissions": [
     "https://open.spotify.com/*",

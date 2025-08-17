@@ -1,7 +1,11 @@
 // Background service worker for the extension
 class SpotifyCommentsBackground {
   constructor() {
+    this.session = null; // { token, privyUserId }
+    this.apiUrlOverride = null;
     this.setupEventListeners();
+    this.bootstrapAuth();
+    this.loadApiUrlOverride();
   }
 
   setupEventListeners() {
@@ -30,6 +34,15 @@ class SpotifyCommentsBackground {
   async handleMessage(message, sender, sendResponse) {
     try {
       switch (message.type) {
+        case 'GET_AUTH_STATE':
+          sendResponse({ success: true, data: { authenticated: !!this.session?.token, privyUserId: this.session?.privyUserId || null } });
+          break;
+
+        case 'OPEN_LOGIN':
+          await this.openHostedLogin();
+          sendResponse({ success: true });
+          break;
+
         case 'GET_COMMENTS':
           const comments = await this.fetchComments(message.payload);
           sendResponse({ success: true, data: comments });
@@ -38,6 +51,11 @@ class SpotifyCommentsBackground {
         case 'POST_COMMENT':
           const result = await this.postComment(message.payload);
           sendResponse({ success: true, data: result });
+          break;
+
+        case 'DELETE_COMMENT':
+          await this.deleteComment(message.payload.commentId);
+          sendResponse({ success: true });
           break;
 
         case 'CHECK_BACKEND_STATUS':
@@ -54,6 +72,80 @@ class SpotifyCommentsBackground {
     }
   }
 
+  async bootstrapAuth() {
+    try {
+      const stored = await chrome.storage.local.get(['session']);
+      if (stored?.session?.token) {
+        this.session = stored.session;
+        return;
+      }
+      // No session: encourage login via popup flow on demand
+      this.session = null;
+    } catch (e) {
+      console.warn('Auth bootstrap failed:', e);
+    }
+  }
+
+  async setSession(session) {
+    this.session = session;
+    await chrome.storage.local.set({ session });
+    chrome.runtime.sendMessage({ type: 'PRIVY_SESSION_UPDATED' }).catch(() => {});
+  }
+
+  async openHostedLogin() {
+    // Use WebAuthFlow to capture a redirect back to the extension with a token
+    const baseUrl = this.getApiUrl();
+    const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/privy`; // special redirect for extensions
+    const startUrl = `${baseUrl}/auth/start?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    try {
+      const redirect = await chrome.identity.launchWebAuthFlow({
+        url: startUrl,
+        interactive: true
+      });
+      console.log('[Auth] WebAuthFlow redirect URL:', redirect);
+      // redirect is the final URL, e.g., https://<ext>.chromiumapp.org/privy#privyToken=...
+      const tokenMatch = redirect && redirect.match(/[?#&]privyToken=([^&#]+)/);
+      const privyToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
+      if (!privyToken) {
+        console.error('[Auth] Missing privyToken in redirect');
+        throw new Error('Missing privyToken in redirect');
+      }
+      console.log('[Auth] Exchanging Privy token');
+      await this.exchangePrivyToken(privyToken);
+      console.log('[Auth] Exchange complete, session stored');
+    } catch (e) {
+      console.error('Login flow failed', e);
+      throw e;
+    }
+  }
+
+  async exchangePrivyToken(privyToken) {
+    const baseUrl = this.getApiUrl();
+    const res = await fetch(`${baseUrl}/auth/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ privyToken })
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.error('[Auth] Exchange failed', res.status, t);
+      throw new Error(`Exchange failed: ${res.status}`);
+    }
+    const data = await res.json();
+    if (!data?.token) {
+      console.error('[Auth] Exchange returned no token', data);
+      throw new Error('No app token in exchange response');
+    }
+    await this.setSession({ token: data.token, privyUserId: data.privyUserId });
+  }
+
+  async loadApiUrlOverride() {
+    try {
+      const stored = await chrome.storage.local.get(['spotifyCommentsApiUrl']);
+      this.apiUrlOverride = stored?.spotifyCommentsApiUrl || null;
+    } catch (_) {}
+  }
+
   async fetchComments({ playlistId, trackUri }) {
     try {
       const baseUrl = this.getApiUrl();
@@ -62,7 +154,9 @@ class SpotifyCommentsBackground {
         url += `&track_uri=${encodeURIComponent(trackUri)}`;
       }
 
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: this.session?.token ? { 'Authorization': `Bearer ${this.session.token}` } : {}
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
@@ -76,6 +170,9 @@ class SpotifyCommentsBackground {
 
   async postComment({ playlistId, trackUri, text }) {
     try {
+      if (!this.session?.token) {
+        throw new Error('Not authenticated');
+      }
       const payload = {
         playlist_id: playlistId,
         text: text
@@ -89,7 +186,8 @@ class SpotifyCommentsBackground {
       const response = await fetch(`${baseUrl}/comments`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.session.token}`
         },
         body: JSON.stringify(payload)
       });
@@ -103,6 +201,17 @@ class SpotifyCommentsBackground {
       console.error('Error posting comment:', error);
       throw error;
     }
+  }
+
+  async deleteComment(commentId) {
+    if (!this.session?.token) throw new Error('Not authenticated');
+    const baseUrl = this.getApiUrl();
+    const response = await fetch(`${baseUrl}/comments/${commentId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${this.session.token}` }
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return true;
   }
 
   async checkBackendStatus() {
@@ -147,9 +256,8 @@ class SpotifyCommentsBackground {
   }
 
   getApiUrl() {
-    // Allow overriding API URL via localStorage for easier testing/migration
-    const override = localStorage.getItem('spotifyCommentsApiUrl');
-    if (override) return override;
+    // Allow overriding API URL via chrome.storage.local for easier testing/migration
+    if (this.apiUrlOverride) return this.apiUrlOverride;
     // Default to local HTTPS reverse proxy (Caddy)
     return 'https://localhost:8443';
   }

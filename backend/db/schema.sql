@@ -3,11 +3,21 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Users table to track ownership and map to Privy identity
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    privy_user_id TEXT UNIQUE NOT NULL,
+    email TEXT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS comments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     playlist_id TEXT NOT NULL,
     track_uri TEXT NULL,
     text TEXT NOT NULL CHECK (length(text) > 0 AND length(text) <= 500),
+    user_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -31,6 +41,11 @@ BEGIN
     RETURN NEW;
 END;
 $$ language 'plpgsql';
+
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_comments_updated_at
     BEFORE UPDATE ON comments

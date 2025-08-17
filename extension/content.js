@@ -5,6 +5,8 @@ class SpotifyCommentsExtension {
     this.currentPlaylistId = null;
     this.currentTrackUri = null;
     this.isDrawerOpen = false;
+    this.authenticated = false;
+    this.privyUserId = null;
     this.commentButton = null;
     this.drawer = null;
     this.mutationObserver = null;
@@ -27,6 +29,14 @@ class SpotifyCommentsExtension {
     this.detectCurrentContext();
     this.injectUI();
     this.setupEventListeners();
+    this.fetchAuthState();
+    try {
+      chrome.runtime.onMessage.addListener((msg) => {
+        if (msg?.type === 'PRIVY_SESSION_UPDATED') {
+          this.fetchAuthState();
+        }
+      });
+    } catch (_) {}
   }
 
   createShadowDOM() {
@@ -440,6 +450,7 @@ class SpotifyCommentsExtension {
         <textarea class="composer-input" placeholder="Add a comment..." rows="3"></textarea>
         <div class="composer-actions">
           <button class="send-button">Send</button>
+          <button class="login-button" style="margin-left:8px; display:none;">Sign in</button>
         </div>
       </div>
     `;
@@ -458,12 +469,18 @@ class SpotifyCommentsExtension {
     
     const sendButton = this.drawer.querySelector('.send-button');
     const textArea = this.drawer.querySelector('.composer-input');
+    const loginButton = this.drawer.querySelector('.login-button');
     
     sendButton.addEventListener('click', () => this.sendComment());
     textArea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         this.sendComment();
       }
+    });
+    loginButton.addEventListener('click', () => {
+      try {
+        chrome.runtime.sendMessage({ type: 'OPEN_LOGIN' });
+      } catch (_) {}
     });
     
     this.shadowRoot.appendChild(this.drawer);
@@ -564,24 +581,20 @@ class SpotifyCommentsExtension {
     commentList.innerHTML = '<div class="loading">Loading comments...</div>';
     
     try {
-      let url = `${this.getApiUrl()}/comments?playlist_id=${this.currentPlaylistId}`;
+      const payload = {
+        playlistId: this.currentPlaylistId,
+        trackUri: this.currentTab === 'track' ? this.currentTrackUri : null
+      };
+      const resp = await new Promise((resolve, reject) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'GET_COMMENTS', payload }, (r) => {
+            if (r?.success) resolve(r.data);
+            else reject(new Error(r?.error || 'Failed'));
+          });
+        } catch (e) { reject(e); }
+      });
       
-      if (this.currentTab === 'track' && this.currentTrackUri) {
-        url += `&track_uri=${encodeURIComponent(this.currentTrackUri)}`;
-      }
-      
-      console.log('🔍 Loading comments from:', url);
-      const response = await fetch(url);
-      console.log('📡 Response status:', response.status, response.statusText);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const comments = await response.json();
-      console.log('💬 Loaded comments:', comments);
-      
-      this.renderComments(comments);
+      this.renderComments(resp || []);
     } catch (error) {
       console.error('❌ Error loading comments:', error);
       commentList.innerHTML = '<div class="error-state">Failed to load comments. Please try again.</div>';
@@ -597,13 +610,24 @@ class SpotifyCommentsExtension {
     }
     
     const commentsHtml = comments.map(comment => `
-      <div class="comment-item">
+      <div class="comment-item" data-id="${comment.id}">
         <div class="comment-text">${this.escapeHtml(comment.text)}</div>
-        <div class="comment-meta">${this.formatDate(comment.created_at)}</div>
+        <div class="comment-meta">
+          ${this.formatDate(comment.created_at)}
+          ${comment.is_owner ? '<button class="delete-button" style="margin-left:8px; background:none; border:none; color:#e22134; cursor:pointer;">Delete</button>' : ''}
+        </div>
       </div>
     `).join('');
     
     commentList.innerHTML = commentsHtml;
+    // Attach delete handlers
+    commentList.querySelectorAll('.delete-button').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const item = e.target.closest('.comment-item');
+        const id = item?.getAttribute('data-id');
+        if (id) this.deleteComment(id);
+      });
+    });
     
     // Scroll to bottom
     commentList.scrollTop = commentList.scrollHeight;
@@ -614,48 +638,54 @@ class SpotifyCommentsExtension {
     const text = textArea.value.trim();
     
     if (!text || !this.currentPlaylistId) return;
+    if (!this.authenticated) {
+      alert('Please sign in to post comments.');
+      try { chrome.runtime.sendMessage({ type: 'OPEN_LOGIN' }); } catch (_) {}
+      return;
+    }
     
     const sendButton = this.drawer.querySelector('.send-button');
     sendButton.disabled = true;
     
     try {
       const payload = {
-        playlist_id: this.currentPlaylistId,
-        text: text
+        playlistId: this.currentPlaylistId,
+        trackUri: this.currentTab === 'track' ? this.currentTrackUri : null,
+        text
       };
-      
-      if (this.currentTab === 'track' && this.currentTrackUri) {
-        payload.track_uri = this.currentTrackUri;
-      }
-      
-      console.log('📝 Sending comment:', payload);
-      console.log('🎯 API URL:', this.getApiUrl());
-      
-      const response = await fetch(`${this.getApiUrl()}/comments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
+      const resp = await new Promise((resolve, reject) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'POST_COMMENT', payload }, (r) => {
+            if (r?.success) resolve(r.data);
+            else reject(new Error(r?.error || 'Failed'));
+          });
+        } catch (e) { reject(e); }
       });
       
-      console.log('📡 Send response status:', response.status, response.statusText);
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Comment sent successfully:', result);
-        textArea.value = '';
-        this.loadComments(); // Refresh comments
-      } else {
-        const errorText = await response.text();
-        console.error('❌ Server error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      textArea.value = '';
+      this.loadComments();
     } catch (error) {
       console.error('❌ Error sending comment:', error);
       alert('Failed to send comment. Please try again.');
     } finally {
       sendButton.disabled = false;
+    }
+  }
+
+  async deleteComment(commentId) {
+    try {
+      if (!this.authenticated) return;
+      const res = await new Promise((resolve, reject) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'DELETE_COMMENT', payload: { commentId } }, (resp) => {
+            if (resp?.success) resolve(resp);
+            else reject(new Error(resp?.error || 'Delete failed'));
+          });
+        } catch (e) { reject(e); }
+      });
+      this.loadComments();
+    } catch (e) {
+      alert('Failed to delete comment.');
     }
   }
 
@@ -681,11 +711,24 @@ class SpotifyCommentsExtension {
   }
 
   getApiUrl() {
-    // Allow overriding API URL via localStorage for easier testing/migration
-    const override = localStorage.getItem('spotifyCommentsApiUrl');
-    if (override) return override;
-    // Default to local HTTPS reverse proxy (Caddy)
+    // Read from background to avoid localStorage usage in content script
+    // Fallback to default URL
     return 'https://localhost:8443';
+  }
+
+  async fetchAuthState() {
+    try {
+      const resp = await new Promise((resolve, reject) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' }, resolve);
+        } catch (e) { reject(e); }
+      });
+      const data = resp?.data || {};
+      this.authenticated = !!data.authenticated;
+      this.privyUserId = data.privyUserId || null;
+      const loginBtn = this.drawer?.querySelector('.login-button');
+      if (loginBtn) loginBtn.style.display = this.authenticated ? 'none' : 'inline-block';
+    } catch (_) {}
   }
 
   debounce(func, wait) {
