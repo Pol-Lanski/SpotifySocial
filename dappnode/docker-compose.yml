@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    image: jamsession.dnp.dappnode.eth:0.1.0
+    container_name: jamsession-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=development
+      - PORT=5050
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - JWT_SECRET=${JWT_SECRET}
+      - PRIVY_APP_ID=${PRIVY_APP_ID}
+      - PRIVY_APP_SECRET=${PRIVY_APP_SECRET}
+    expose:
+      - "5050"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5050/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # No public port mapping by default; use DAppNode Network UI to expose HTTPS domain to port 5050
+
+  db:
+    image: postgres:16-alpine
+    container_name: jamsession-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  pgdata:
+

@@ -1,0 +1,38 @@
+version: 1
+
+questions:
+  - variable: POSTGRES_DB
+    label: Postgres database name
+    type: text
+    default: spotify_comments
+
+  - variable: POSTGRES_USER
+    label: Postgres username
+    type: text
+    default: postgres
+
+  - variable: POSTGRES_PASSWORD
+    label: Postgres password
+    type: password
+    required: true
+
+  - variable: CORS_ORIGINS
+    label: CORS allowlist origins (comma-separated)
+    type: text
+    default: https://open.spotify.com,https://jamsession.dappnode
+
+  - variable: JWT_SECRET
+    label: App JWT secret (long random string)
+    type: password
+    required: true
+
+  - variable: PRIVY_APP_ID
+    label: Privy App ID (optional)
+    type: text
+    required: false
+
+  - variable: PRIVY_APP_SECRET
+    label: Privy App Secret (optional)
+    type: password
+    required: false
+
