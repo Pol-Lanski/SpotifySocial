@@ -4,16 +4,21 @@
   "shortDescription": "JamSession API: comments for Spotify playlists",
   "description": "Backend API (Node.js + Postgres) that powers the JamSession Chrome extension to add a shared commenting layer to Spotify playlists.",
   "type": "service",
-  "author": "JamSession maintainers",
-  "categories": ["Tools", "Media"],
+  "author": "Lanski",
+  "categories": ["Developer tools"],
   "architectures": ["linux/amd64", "linux/arm64"],
-  "repository": "https://github.com/your-org-or-user/JamSession",
-  "homepage": "https://github.com/your-org-or-user/JamSession",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pol-Lanski/SpotifySocial/"
+  },
   "license": "MIT",
-  "exposed": [
+  "exposable": [
     { "name": "API", "type": "http", "port": 5050 }
   ],
   "mainService": "server",
-  "bugs": "https://github.com/your-org-or-user/JamSession/issues"
+  "links": {
+    "homepage": "https://github.com/Pol-Lanski/SpotifySocial",
+    "bugs": "https://github.com/Pol-Lanski/SpotifySocial/issues"
+  }
 }
 

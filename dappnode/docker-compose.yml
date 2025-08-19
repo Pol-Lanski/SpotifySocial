@@ -29,7 +29,10 @@ services:
     # No public port mapping by default; use DAppNode Network UI to expose HTTPS domain to port 5050
 
   db:
-    image: postgres:16-alpine
+    build:
+      context: ..
+      dockerfile: dappnode/db/Dockerfile
+    image: jamsession-postgres:16
     container_name: jamsession-db
     restart: unless-stopped
     environment:
@@ -38,7 +41,6 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

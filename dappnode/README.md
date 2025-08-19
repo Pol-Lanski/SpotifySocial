@@ -6,7 +6,9 @@ This directory contains the DAppNode package definition for deploying the JamSes
 
 - `dappnode_package.json`: Package metadata
 - `docker-compose.yml`: Services definition for DAppNode (server + Postgres). Exposes the API through Traefik at `https://jamsession.dappnode`.
+- `docker-compose.yml`: Services definition for DAppNode (server + Postgres). Expose the API via DAppNode Network tab mapping to port 5050.
 - `setup-wizard.yml`: Installation wizard questions to collect secrets and DB credentials
+- `db/Dockerfile`: Custom Postgres image that copies the canonical schema from `backend/db/schema.sql` (no bind mounts)
 
 ### Build and publish
 
